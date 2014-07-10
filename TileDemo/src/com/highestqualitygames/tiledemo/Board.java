@@ -1,5 +1,7 @@
 package com.highestqualitygames.tiledemo;
 
+import sun.security.ssl.Debug;
+
 import com.badlogic.gdx.scenes.scene2d.ui.Widget;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.Sprite;
@@ -8,7 +10,8 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
 
 import com.highestqualitygames.tiledemo.TileDemoGame.Tile;
-
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
 
 /*
 A Scene2D.ui Widget for a rectangular grid of game tiles supporting a
@@ -39,8 +42,11 @@ abstract class Board extends Widget {
 	// I try not to refer to row/col as y/x or x/y.
 	
 	protected int tilesWide, tilesHigh;
-	
-	ShapeRenderer sr = new ShapeRenderer();
+	// Because of brain damage in libgdx, use this as a manual scaling factor... 
+	float tileSize;
+	float scale;
+	// 
+	String name;
 	
 	// Is there currently a highlighted set?
 	protected boolean highlight = false;
@@ -57,8 +63,42 @@ abstract class Board extends Widget {
 	
 	abstract Tile tileAt(int row, int column);
 	abstract Sprite tileSprite(Tile t);
+
 	boolean tileSelectable(int row, int column){
 		return true;
+	}
+	
+	public Board(int tilesWide, int tilesHigh, float tileSize, final String name){
+		//super();
+		this.tilesWide = tilesWide;
+		this.tilesHigh = tilesHigh;
+		this.tileSize = tileSize;
+		scale = tileSize / 200f;
+		this.name = name;
+		
+		this.setSize(this.getPrefWidth(), this.getPrefHeight());
+		
+		this.addListener(new ClickListener(){
+			public void clicked(InputEvent event, float x, float y){
+				click(x,y);
+			}
+		});
+	}
+	
+	void click(float x, float y){
+		Debug.println("Board", String.format("On %s at (%f,%f), %f x %f @ (%f,%f)", 
+				name, getX(), getY(), getWidth(), getHeight(), x, y));
+
+		if(selecting){
+			int col = (int) java.lang.Math.floor(x / tileSize);
+			int row = (int) java.lang.Math.floor(y / tileSize);
+			
+			if(tileSelectable(row, col)){
+				selectedCol = col;
+				selectedRow = row;
+				selection = true;
+			}
+		}
 	}
 	
 	// Sets possible selection area and clears any selection
@@ -88,6 +128,10 @@ abstract class Board extends Widget {
 		selection = false;
 	}
 	
+	public boolean hasSelection(){
+		return selection;
+	}
+	
 	// Currnetly selected row or -1
 	public int selectedRow(){
 		return selection ? selectedRow : -1;
@@ -115,19 +159,12 @@ abstract class Board extends Widget {
 		this.invalidateHierarchy();
 	}
 	
-	public Board(int tilesWide, int tilesHigh){
-		super();
-		
-		this.tilesWide = tilesWide;
-		this.tilesHigh = tilesHigh;
-	}
-	
 	public float getPrefHeight(){
-		return 200f * tilesHigh * this.getScaleY();
+		return tileSize * tilesHigh * getScaleY();
 	}
 	
 	public float getPrefWidth(){
-		return this.tilesWide * 200f * this.getScaleX();
+		return tileSize * tilesWide * getScaleX();
 	}
 	
 	boolean highlightCell(int i, int j){
@@ -146,26 +183,27 @@ abstract class Board extends Widget {
 	}
 	
 	void drawTile(Sprite s, Batch batch, float alpha, float x, float y){
-		s.setScale(getScaleX(), getScaleY());
+		s.setScale(scale);
 		s.setOrigin(getOriginX(), getOriginY());
 		s.setBounds(x, y, 200f, 200f);
 		s.draw(batch, alpha);
 	}
 	
-	@Override public void draw(Batch batch, float a) {
+	public void draw(Batch batch, float a) {
+		validate();
+		
 		Color color = getColor();
 		batch.setColor(color.r, color.g, color.b, a);
 		
 		for(int i = 0; i < tilesHigh; i++){
 			for(int j = 0; j < tilesWide; j++){
-				float x = getX() + 200f * j * getScaleX();
-				float y = getY() + 200f * i * getScaleY();
+				float x = getX() + tileSize * j * getScaleX();
+				float y = getY() + tileSize * i * getScaleY();
 				
 				if(tileAt(i,j) != Tile.Empty){
 					drawTile(tileSprite(tileAt(i, j)), batch, 1f, x, y);
 				}
 
-				
 				if(highlightCell(i,j) || selectedCell(i,j)){
 					drawTile(TileDemoGame.highlight, batch, 0.3f, x, y);
 				}

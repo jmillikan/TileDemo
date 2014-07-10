@@ -9,7 +9,9 @@ import sun.security.ssl.Debug;
 
 import static com.badlogic.gdx.scenes.scene2d.actions.Actions.delay;
 import static com.badlogic.gdx.scenes.scene2d.actions.Actions.sequence;
+import static com.badlogic.gdx.scenes.scene2d.actions.Actions.forever;
 import com.badlogic.gdx.scenes.scene2d.Action;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
 
 import com.badlogic.gdx.ApplicationListener;
 import com.badlogic.gdx.Gdx;
@@ -28,7 +30,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.*;
 
 public class TileDemoGame implements ApplicationListener {
 	Action ui_delay(float f){
-		return delay(f / 5);
+		return delay(f / 1);
 	}
 	
 	public enum Tile {
@@ -84,14 +86,39 @@ public class TileDemoGame implements ApplicationListener {
 		
 		Stack st = new Stack();
 		st.add(makeTileBoard());
-		st.add(makeTileQueueLayer());
 		st.add(makeTileChoiceLayer());
 		st.add(makeAnnouncementLayer());
-		st.setFillParent(true);
+		st.add(makeTileQueueLayer());
 		
+//		final Image i = new Image(this.bg);
+//		
+//		i.setScale(0.5f);
+//		
+//		i.addListener(new ClickListener(){
+//			public void clicked(InputEvent e, float x, float y){
+//				Debug.println("Board", String.format("On %s at (%f,%f), click @ (%f,%f)", 
+//						"Test image", i.getX(), i.getY(), x, y));
+//			}
+//		});
+		
+//		st.add(new Container<Image>(i).top());
+		
+		st.setFillParent(true);
+
 		stage.addActor(st);
 
 		beginTileSelectRound();
+		
+		stage.addAction(forever(sequence(delay(5.0f), new Action(){
+			public boolean act(float delta){
+				Debug.println("TileDemoGame", 
+						String.format("TileQueue: (%f,%f) @ (%f,%f)", 
+								tileQueue.getWidth(), tileQueue.getHeight(),
+								tileQueue.getX(), tileQueue.getY()));
+				
+				return true;
+			}
+		})));
 	}
 	
 	// Note: Board displays tiles "Y up", so we reverse that in tileAt.
@@ -138,8 +165,6 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	void beginPlayerTileChoice(int player){
-		Debug.println("tile", String.format("Player index: %d", player));
-		
 		if(playerType[player] == PlayerType.LocalCPU){
 			cpuSelectTile(player, cpuChooseTile(player));
 		}
@@ -163,7 +188,7 @@ public class TileDemoGame implements ApplicationListener {
 		}
 	}
 	
-	// TODO: Rpelace announcement.setText with something unclickable
+	// TODO: Replace announcement.setText with something unclickable
 	// that scrolls and fades out messages
 	void humanSelectTile(final int player){
 		tileQueue.selectionSet(0, 0, 1, players + 1);
@@ -172,26 +197,31 @@ public class TileDemoGame implements ApplicationListener {
 		
 		stage.addAction(sequence(ui_delay(3.0f), new Action(){
 			public boolean act(float f){
-				if(tileQueue.selectedCol() >= 0){
+				if(tileQueue.hasSelection()){
 					announcement.setText("");
 					
+					int col = tileQueue.selectedCol();
+					announcement.setText("");
 					tileQueue.clearSelecting();
-					playerSelectedTile(player, tileQueue.selectedCol());
+
+					playerSelectedTile(player, col);
 				}
 				else {
 					announcement.setText("Pick a tile. 12s remaining");
+					
+					tileQueue.setSelection(0, defaultTileIndex());
 
 					stage.addAction(sequence(ui_delay(12.0f), new Action(){
 						public boolean act(float f){
+							if(!tileQueue.hasSelection()){
+								throw new Error("No tile selected from queue. Event ordering problems likely.");
+							}
+							
+							int col = tileQueue.selectedCol();
 							announcement.setText("");
-
 							tileQueue.clearSelecting();
-							if(tileQueue.selectedCol() >= 0){
-								playerSelectedTile(player, tileQueue.selectedCol());
-							}
-							else {
-								playerSelectedTile(player, defaultTileIndex());
-							}
+							
+							playerSelectedTile(player, col);
 							
 							return true;
 						}
@@ -271,24 +301,33 @@ public class TileDemoGame implements ApplicationListener {
 	public void humanPlaceTile(final int player){
 		announcement.setText("Pick a column. >3s for speed bonus!");
 		
+		tileBoard.selectionSet(0, 0, 1, players + 1);
+		
 		stage.addAction(sequence(ui_delay(3.0f), new Action(){
 			public boolean act(float f){
-				if(tileBoard.selectedCol() >= 0){
+				if(tileBoard.hasSelection()){
 					announcement.setText("");
 					
 					playerTilePlaced(player, tileBoard.selectedCol());
+					
+					tileBoard.clearSelecting();
 				}
 				else {
 					announcement.setText("Pick a column. 12s remaining");
+					
+					tileBoard.setSelection(0, defaultColumn());
 
 					stage.addAction(sequence(ui_delay(12.0f), new Action(){
 						public boolean act(float f){
 							announcement.setText("");
 							
-							playerTilePlaced(player,
-									tileBoard.selectedCol() >= 0 ? 
-											tileBoard.selectedCol() : 
-											defaultColumn());
+							if(!tileBoard.hasSelection()){
+								throw new Error("No selection somehow, probably bad event order");
+							}
+							
+							playerTilePlaced(player, tileBoard.selectedCol());
+							
+							tileBoard.clearSelecting();
 							
 							return true;
 						}
@@ -376,7 +415,7 @@ public class TileDemoGame implements ApplicationListener {
 	public Actor makeTileBoard(){
 		fillLastRow(Tile.Manor);
 		
-		tileBoard = new Board(5,1){
+		tileBoard = new Board(5,1,200f,"tileBoard"){
 			Tile tileAt(int row, int col){
 				return tiles[lastRow - row][col];
 			}
@@ -385,7 +424,6 @@ public class TileDemoGame implements ApplicationListener {
 		};
 		
 		tileBoard.setPosition(0f, 0f);
-		tileBoard.setScale(1f);
 		
 		ScrollPane p = new ScrollPane(tileBoard);
 		ScrollPaneStyle s = new ScrollPaneStyle(new TiledDrawable(bg), null, null, null, null);
@@ -407,7 +445,7 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	public Actor makeTileQueueLayer(){
-		tileQueue = new Board(50,1){
+		tileQueue = new Board(50,1,100f,"tileQueue"){
 			Tile tileAt(int row, int col){
 				return queue.get(col);
 			}
@@ -415,15 +453,17 @@ public class TileDemoGame implements ApplicationListener {
 			Sprite tileSprite(Tile t){ return ts(t); }
 		};
 		
-		tileQueue.setScale(0.3f);
-		
 		ScrollPane pane = new ScrollPane(new Container<Board>(tileQueue).padLeft(200f).fill(0, 0));
 		pane.setupOverscroll(0f, 0f, 0f);
 		
 		Container<ScrollPane> c = new Container<ScrollPane>(pane)
-				.padTop(20f).top().fill(1f,0f);
+				.padTop(0f).top().fill(1f,0f);
 		
 		return c;
+//		
+		//return tileQueue;
+		
+//		return new Container<Board>(tileQueue).top();
 	}
 	
 	public Actor makeTileChoiceLayer(){
@@ -431,15 +471,13 @@ public class TileDemoGame implements ApplicationListener {
 			playerTileChoice[i] = Tile.Empty;
 		}
 		
-		tileChoice = new Board(4,1){
+		tileChoice = new Board(4,1,50f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}
 			
 			Sprite tileSprite(Tile t){ return ts(t); }
 		};
-		
-		tileChoice.setScale(0.25f);
 		
 		ScrollPane pane = new ScrollPane(tileChoice);
 		
