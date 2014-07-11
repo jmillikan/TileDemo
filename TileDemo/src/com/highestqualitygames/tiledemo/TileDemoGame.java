@@ -29,19 +29,26 @@ import com.badlogic.gdx.scenes.scene2d.utils.*;
 
 
 public class TileDemoGame implements ApplicationListener {
+	// Used in place of delay to speed/slow actions for smoke testing
 	Action ui_delay(float f){
-		return delay(f / 1);
+		return delay(f / 3);
 	}
 	
 	public enum Tile {
 		Empty, Manor, Forest, Field, Pasture, Village
 	}
 	
+	
+	/* Splitting these to top/bottom is not good game logic, but hte game logic is eventually departing this class... */
+	public enum Role {
+		Empty, FieldTop, FieldBottom, PastureTop, PastureBottom, VillageTop, VillageBottom, ManorTop, ManorBottom, ForestTop, ForestBottom 
+	}
+	
 	public enum PlayerType {
 		LocalHuman, LocalCPU
 	}
 	
-	Sprite ts(Tile t){
+	TextureRegion tr(Tile t){
 		switch(t){
 		case Empty: return null;
 		case Manor: return manor;
@@ -53,27 +60,34 @@ public class TileDemoGame implements ApplicationListener {
 		}
 	}
 	
+	TextureRegion roleTile(Role t){
+		switch(t){
+		case Empty: return manor;
+		case FieldTop: return field;
+		case FieldBottom: return field;
+		default: return manor;
+		}
+	}
+	
 	public static Sprite highlight, selectable;
 	
-	/* Basically handles drawing an m*n grid of Tiles using tileSprite */
-
 	TextureRegion bg; 
 	private Stage stage;
-	private Sprite manor, forest, field, pasture, village;
+	private TextureRegion manor, forest, field, pasture, village;
+	Actor roleChooseLayer;
 	
 	Random random = new Random();
-	
 
 	@Override
 	public void create() {
 		TextureAtlas atlas;
 		atlas = new TextureAtlas(Gdx.files.internal("data/images.atlas"));
 		bg = atlas.findRegion("bg");
-		manor = atlas.createSprite("manor");
-		forest = atlas.createSprite("forest");
-		field = atlas.createSprite("field");
-		pasture = atlas.createSprite("pasture");
-		village = atlas.createSprite("village");
+		manor = atlas.findRegion("manor");
+		forest = atlas.findRegion("forest");
+		field = atlas.findRegion("field");
+		pasture = atlas.findRegion("pasture");
+		village = atlas.findRegion("village");
 		
 		highlight = atlas.createSprite("highlight");
 		selectable = atlas.createSprite("selectable");
@@ -84,48 +98,61 @@ public class TileDemoGame implements ApplicationListener {
 		playerType = new PlayerType[] { PlayerType.LocalCPU, PlayerType.LocalHuman, PlayerType.LocalCPU, PlayerType.LocalCPU };
 		fillTileQueue();
 		
+		Role[] roleTops = new Role[] { Role.FieldTop, Role.Empty, Role.Empty, Role.Empty, Role.Empty };
+		Role[] roleBottoms = new Role[] { Role.FieldBottom, Role.Empty, Role.Empty, Role.Empty, Role.Empty };
+		availableRoles = new Role[][] { roleTops, roleBottoms };
+		
+		roleChooseLayer = makeChooseRoleLayer();
+		
 		Stack st = new Stack();
 		st.add(makeTileBoard());
 		st.add(makeTileChoiceLayer());
 		st.add(makeAnnouncementLayer());
 		st.add(makeTileQueueLayer());
+		st.add(roleChooseLayer);
 		
-//		final Image i = new Image(this.bg);
-//		
-//		i.setScale(0.5f);
-//		
-//		i.addListener(new ClickListener(){
-//			public void clicked(InputEvent e, float x, float y){
-//				Debug.println("Board", String.format("On %s at (%f,%f), click @ (%f,%f)", 
-//						"Test image", i.getX(), i.getY(), x, y));
-//			}
-//		});
-		
-//		st.add(new Container<Image>(i).top());
+		roleChooseLayer.setVisible(false);
 		
 		st.setFillParent(true);
 
 		stage.addActor(st);
 
 		beginTileSelectRound();
-		
-		stage.addAction(forever(sequence(delay(5.0f), new Action(){
-			public boolean act(float delta){
-				Debug.println("TileDemoGame", 
-						String.format("TileQueue: (%f,%f) @ (%f,%f)", 
-								tileQueue.getWidth(), tileQueue.getHeight(),
-								tileQueue.getX(), tileQueue.getY()));
-				
-				return true;
-			}
-		})));
 	}
+
+	@Override
+	public void dispose() {
+		stage.dispose();
+	}
+
+	@Override
+	public void render() {		
+		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+				
+		stage.act(Gdx.graphics.getDeltaTime());
+		stage.draw();
+	}
+
+	@Override
+	public void resize(int width, int height) {
+		stage.getViewport().update(width, height, true);
+	}
+
+	@Override
+	public void pause() {
+	}
+
+	@Override
+	public void resume() {
+	}
+	
 	
 	// Note: Board displays tiles "Y up", so we reverse that in tileAt.
 	// But 
-	private Tile[][] tiles = new Tile[100][5];
+	Tile[][] tiles = new Tile[100][5];
+	Role[][] availableRoles = new Role[2][5];
 	int lastRow = 0;
-	Board tileBoard, tileQueue, tileChoice;
+	Board tileBoard, tileQueue, tileChoice, roleChoose;
 	Label announcement;
 	
 	private List<Tile> queue = new ArrayList<Tile>();
@@ -133,6 +160,16 @@ public class TileDemoGame implements ApplicationListener {
 	PlayerType[] playerType = new PlayerType[4];
 	int players = 4;
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
+
+	/* TILE SELECTION ROUND */
+	
+	/*
+	 * beginTileSelectRound calls beginPlayerTileChoice
+	 * beginPlayerTileChoice will call either the CPU tile choice
+	 * or human tile choice functions
+	 * These will trigger events calling playerTilePlaced (eventually)
+	 * which will call beginPlayerTileChoice or begin the next round... 
+	 */
 	
 	void beginTileSelectRound(){
 		announcement.setText("Tile Selection Round");
@@ -148,6 +185,15 @@ public class TileDemoGame implements ApplicationListener {
 		}));
 	}
 
+	void beginPlayerTileChoice(int player){
+		if(playerType[player] == PlayerType.LocalCPU){
+			cpuSelectTile(player, cpuChooseTile(player));
+		}
+		else {
+			humanSelectTile(player);
+		}
+	}
+	
 	// Computer player X selects a tile.
 	// Highlight tile and wait 3 seconds, then move on.
 	public void cpuSelectTile(final int player, final int queueIndex){
@@ -162,15 +208,6 @@ public class TileDemoGame implements ApplicationListener {
 				return true;
 			}
 		}));		
-	}
-	
-	void beginPlayerTileChoice(int player){
-		if(playerType[player] == PlayerType.LocalCPU){
-			cpuSelectTile(player, cpuChooseTile(player));
-		}
-		else {
-			humanSelectTile(player);
-		}
 	}
 	
 	void playerSelectedTile(int player, int queueIndex){
@@ -188,8 +225,6 @@ public class TileDemoGame implements ApplicationListener {
 		}
 	}
 	
-	// TODO: Replace announcement.setText with something unclickable
-	// that scrolls and fades out messages
 	void humanSelectTile(final int player){
 		tileQueue.selectionSet(0, 0, 1, players + 1);
 		
@@ -233,29 +268,8 @@ public class TileDemoGame implements ApplicationListener {
 		}));		
 	}
 	
-	// Give an index into the queue of tile choice for player player
-	// Currently random.
-	public int cpuChooseTile(int player){
-		List<Integer> availableIndices = new ArrayList<Integer>();
-		
-		for(int i = 0; i < players + 1; i++){
-			if(queue.get(i) != Tile.Empty){
-				availableIndices.add(i);
-			}
-		}
-		
-		return availableIndices.get(random.nextInt(availableIndices.size()));
-	}
-	
-	public int defaultTileIndex(){
-		for(int i = 0; i < players + 1; i++){
-			if(queue.get(i) != Tile.Empty){
-				return i;
-			}
-		}
-		
-		throw new Error("No default tile");
-	}
+	/* TILE PLACE ROUND */
+	/* Structure here is basically identical to tile choice round! This is good! */
 	
 	public void beginTilePlaceRound(){
 		announcement.setText("Tile placement round");
@@ -285,7 +299,7 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	public void cpuPlaceTile(final int player, final int column){
-		tileBoard.highlightSet(0, column, 1, 1); // Currently does nothing since empty tile is a no-show
+		tileBoard.highlightSet(0, column, 1, 1);
 		
 		stage.addAction(sequence(ui_delay(3.0f), new Action(){
 			public boolean act(float delta){
@@ -339,6 +353,78 @@ public class TileDemoGame implements ApplicationListener {
 		}));		
 	}
 	
+	public void playerTilePlaced(int player, int column){
+		Tile t = TileDemoGame.this.playerTileChoice[player];
+		playerTileChoice[player] = Tile.Empty;
+		
+		tiles[lastRow][column] = t;
+		
+		if(player + 1 >= players){
+			TileDemoGame.this.beginRoleChoiceRound();
+		}
+		else {
+			beginPlayerTilePlace(player + 1);
+		}
+	}
+	
+	/* CHOOSE ROLE PHASE */
+	
+	void beginRoleChoiceRound(){
+		announcement.setText("Role Choice Round");
+		
+		roleChooseLayer.setVisible(true);
+		
+		stage.addAction(sequence(ui_delay(10.0f), new Action(){
+			public boolean act(float delta){
+				announcement.setText("");
+
+				roleChooseLayer.setVisible(false);
+
+				TileDemoGame.this.beginTileSelectRound();
+
+				return true;				
+			}
+		}));
+	}
+	
+	/* CPU CHOICE AND PLAYER DEFAULT FUNCTIONS */
+
+	// Give an index into the queue of tile choice for CPU player 
+	// Currently random.
+	public int cpuChooseTile(int player){
+		List<Integer> availableIndices = new ArrayList<Integer>();
+		
+		for(int i = 0; i < players + 1; i++){
+			if(queue.get(i) != Tile.Empty){
+				availableIndices.add(i);
+			}
+		}
+		
+		return availableIndices.get(random.nextInt(availableIndices.size()));
+	}
+	
+	public int defaultTileIndex(){
+		for(int i = 0; i < players + 1; i++){
+			if(queue.get(i) != Tile.Empty){
+				return i;
+			}
+		}
+		
+		throw new Error("No default tile");
+	}
+	
+	public int cpuChooseRandomColumn(int player){
+		List<Integer> availableColumns = new ArrayList<Integer>();
+		
+		for(int i = 0; i < players + 1; i++){
+			if(tiles[lastRow][i] == Tile.Empty){
+				availableColumns.add(i);
+			}
+		}
+		
+		return availableColumns.get(random.nextInt(availableColumns.size()));
+	}
+
 	public int defaultColumn(){
 		for(int i = 0; i < players + 1; i++){
 			if(tiles[lastRow][i] == Tile.Empty){
@@ -349,17 +435,23 @@ public class TileDemoGame implements ApplicationListener {
 		throw new Error("No default column available");
 	}
 	
-	public void playerTilePlaced(int player, int column){
-		Tile t = TileDemoGame.this.playerTileChoice[player];
-		playerTileChoice[player] = Tile.Empty;
-		
-		tiles[lastRow][column] = t;
-		
-		if(player + 1 >= players){
-			TileDemoGame.this.beginTileSelectRound();
+	/* HANDLE TILE BOARD AND QUEUE */
+	
+	public void fillLastRow(Tile t){
+		for(int i = 0; i < tiles[lastRow].length; i++){
+			tiles[lastRow][i] = t;
 		}
-		else {
-			beginPlayerTilePlace(player + 1);
+	}
+	
+	// TODO: Generate a set of tiles and randomize it instead...
+	public void fillTileQueue(){
+		java.util.List<Tile> tileValues = Arrays.asList(Tile.values());
+		Random r = new Random();
+			  
+		for(int i = 0; i < 50; i++){
+			// + 1 dodges the Empty tile
+			// Not sure if this is supposed to work
+			queue.add(tileValues.get(r.nextInt(tileValues.size() - 1) + 1));
 		}
 	}
 	
@@ -382,45 +474,21 @@ public class TileDemoGame implements ApplicationListener {
 		tileQueue.resizeBoard(queue.size(), 1);
 	}
 	
-	public int cpuChooseRandomColumn(int player){
-		List<Integer> availableColumns = new ArrayList<Integer>();
-		
-		for(int i = 0; i < players + 1; i++){
-			if(tiles[lastRow][i] == Tile.Empty){
-				availableColumns.add(i);
-			}
-		}
-		
-		return availableColumns.get(random.nextInt(availableColumns.size()));
-	}
-
-	public void fillLastRow(Tile t){
-		for(int i = 0; i < tiles[lastRow].length; i++){
-			tiles[lastRow][i] = t;
-		}
-	}
-	
-	// TODO: Generate a set of tiles and randomize it instead...
-	public void fillTileQueue(){
-		java.util.List<Tile> tileValues = Arrays.asList(Tile.values());
-		Random r = new Random();
-			  
-		for(int i = 0; i < 50; i++){
-			// + 1 dodges the Empty tile
-			// Not sure if this is supposed to work
-			queue.add(tileValues.get(r.nextInt(tileValues.size() - 1) + 1));
-		}
-	}
+	/* MAKE GAME DISPLAY LAYERS */
 	
 	public Actor makeTileBoard(){
 		fillLastRow(Tile.Manor);
 		
-		tileBoard = new Board(5,1,200f,"tileBoard"){
+		tileBoard = new Board<Tile>(5,1,200f,"tileBoard"){
 			Tile tileAt(int row, int col){
 				return tiles[lastRow - row][col];
 			}
-
-			Sprite tileSprite(Tile t){ return ts(t); }
+			
+			boolean tileSelectable(int row, int col){
+				return tiles[lastRow - row][col] == Tile.Empty;
+			}
+			
+			TextureRegion tileTexture(Tile t){ return tr(t); }
 		};
 		
 		tileBoard.setPosition(0f, 0f);
@@ -445,12 +513,16 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	public Actor makeTileQueueLayer(){
-		tileQueue = new Board(50,1,100f,"tileQueue"){
+		tileQueue = new Board<Tile>(50,1,100f,"tileQueue"){
 			Tile tileAt(int row, int col){
 				return queue.get(col);
 			}
 			
-			Sprite tileSprite(Tile t){ return ts(t); }
+			boolean tileSelectable(int row, int col){
+				return queue.get(col) != Tile.Empty;
+			}
+			
+			TextureRegion tileTexture(Tile t){ return tr(t); }
 		};
 		
 		ScrollPane pane = new ScrollPane(new Container<Board>(tileQueue).padLeft(200f).fill(0, 0));
@@ -460,23 +532,19 @@ public class TileDemoGame implements ApplicationListener {
 				.padTop(0f).top().fill(1f,0f);
 		
 		return c;
-//		
-		//return tileQueue;
-		
-//		return new Container<Board>(tileQueue).top();
 	}
-	
+
 	public Actor makeTileChoiceLayer(){
 		for(int i = 0; i < players; i++){
 			playerTileChoice[i] = Tile.Empty;
 		}
 		
-		tileChoice = new Board(4,1,50f,"tileChoice"){
+		tileChoice = new Board<Tile>(4,1,50f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}
-			
-			Sprite tileSprite(Tile t){ return ts(t); }
+
+			TextureRegion tileTexture(Tile t){ return tr(t); }			
 		};
 		
 		ScrollPane pane = new ScrollPane(tileChoice);
@@ -487,29 +555,24 @@ public class TileDemoGame implements ApplicationListener {
 		return c;		
 	}
 
-	@Override
-	public void dispose() {
-		stage.dispose();
-	}
-
-	@Override
-	public void render() {		
-		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-				
-		stage.act(Gdx.graphics.getDeltaTime());
-		stage.draw();
-	}
-
-	@Override
-	public void resize(int width, int height) {
-		stage.getViewport().update(width, height, true);
-	}
-
-	@Override
-	public void pause() {
-	}
-
-	@Override
-	public void resume() {
+	public Actor makeChooseRoleLayer(){
+		roleChoose = new Board<Role>(5,2,150f,"chooseRole"){
+			Role tileAt(int row, int col){
+				return availableRoles[row][col];	
+			}
+			
+			boolean tileSelectable(int row, int col){
+				return availableRoles[row][col] != Role.Empty;
+			}
+			
+			TextureRegion tileTexture(Role t){ return roleTile(t); }
+		};
+		
+		ScrollPane pane = new ScrollPane(roleChoose);
+		pane.setupOverscroll(0f, 0f, 0f);
+		
+		Container<ScrollPane> c = new Container<ScrollPane>(pane).bottom();
+		
+		return c;
 	}
 }

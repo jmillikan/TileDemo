@@ -6,6 +6,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Widget;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.Batch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
 
@@ -20,7 +21,7 @@ highlighted region and a selection mechanism. Not very general.
 As much as I don't like inheritance I'm too lazy to rip it out right now.
 Here's a typical use of Board:
 
-		tileChoice = new Board(4,1){
+		tileChoice = new Board<Tile>(4,1){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}
@@ -37,7 +38,7 @@ highlightSet sets a rectangular region of highlighted tiles.
 Selectable tiles are constrained by selectionSet and then by tileSelectable.
  */
 
-abstract class Board extends Widget {
+abstract class Board<TileT> extends Widget {
 	// Note: Just about everything here is row major, row first - int row, int col; int i (row) vs int j (col) etc
 	// I try not to refer to row/col as y/x or x/y.
 	
@@ -61,8 +62,8 @@ abstract class Board extends Widget {
 	protected int selectedRow;
 	protected int selectedCol;
 	
-	abstract Tile tileAt(int row, int column);
-	abstract Sprite tileSprite(Tile t);
+	abstract TileT tileAt(int row, int column);
+	abstract TextureRegion tileTexture(TileT t);
 
 	boolean tileSelectable(int row, int column){
 		return true;
@@ -93,7 +94,7 @@ abstract class Board extends Widget {
 			int col = (int) java.lang.Math.floor(x / tileSize);
 			int row = (int) java.lang.Math.floor(y / tileSize);
 			
-			if(tileSelectable(row, col)){
+			if(selectableCell(row, col)){
 				selectedCol = col;
 				selectedRow = row;
 				selection = true;
@@ -182,18 +183,16 @@ abstract class Board extends Widget {
 		return selection && i == selectedRow && j == selectedCol;
 	}
 	
-	void drawTile(Sprite s, Batch batch, float alpha, float x, float y){
-		s.setScale(scale);
-		s.setOrigin(getOriginX(), getOriginY());
-		s.setBounds(x, y, 200f, 200f);
-		s.draw(batch, alpha);
+	void drawTile(TextureRegion tr, Batch batch, float x, float y){
+		batch.draw(tr, x, y, getOriginX(), getOriginY(), 200f, 200f, scale, scale, 0f);
 	}
 	
 	public void draw(Batch batch, float a) {
 		validate();
 		
-		Color color = getColor();
-		batch.setColor(color.r, color.g, color.b, a);
+		Color overlay = getColor(), opaque = getColor().cpy();
+		opaque.a = a;
+		overlay.a = 0.3f * a;
 		
 		for(int i = 0; i < tilesHigh; i++){
 			for(int j = 0; j < tilesWide; j++){
@@ -201,14 +200,20 @@ abstract class Board extends Widget {
 				float y = getY() + tileSize * i * getScaleY();
 				
 				if(tileAt(i,j) != Tile.Empty){
-					drawTile(tileSprite(tileAt(i, j)), batch, 1f, x, y);
+					batch.setColor(opaque);
+					
+					drawTile(tileTexture(tileAt(i, j)), batch, x, y);
 				}
 
 				if(highlightCell(i,j) || selectedCell(i,j)){
-					drawTile(TileDemoGame.highlight, batch, 0.3f, x, y);
+					batch.setColor(overlay);
+					
+					drawTile(TileDemoGame.highlight, batch, x, y);
 				}
 				else if(selectableCell(i,j)){
-					drawTile(TileDemoGame.selectable, batch, 0.3f, x, y);
+					batch.setColor(overlay);
+					
+					drawTile(TileDemoGame.selectable, batch, x, y);
 				}
 			}
 		}
