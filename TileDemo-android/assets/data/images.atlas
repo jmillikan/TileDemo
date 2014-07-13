@@ -5,56 +5,126 @@ filter: Nearest,Nearest
 repeat: none
 bg
   rotate: false
-  xy: 608, 62
+  xy: 608, 466
   size: 120, 140
   orig: 120, 140
   offset: 0, 0
   index: -1
 field
   rotate: false
-  xy: 2, 204
+  xy: 2, 810
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 forest
   rotate: false
-  xy: 2, 2
+  xy: 2, 608
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 highlight
   rotate: false
-  xy: 204, 204
+  xy: 204, 810
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 manor
   rotate: false
-  xy: 204, 2
+  xy: 2, 406
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 pasture
   rotate: false
-  xy: 406, 204
+  xy: 204, 608
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-1-bottom
+  rotate: false
+  xy: 406, 810
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-1-top
+  rotate: false
+  xy: 2, 204
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-2-bottom
+  rotate: false
+  xy: 204, 406
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-2-top
+  rotate: false
+  xy: 406, 608
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-3-bottom
+  rotate: false
+  xy: 608, 810
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-3-top
+  rotate: false
+  xy: 2, 2
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-4-bottom
+  rotate: false
+  xy: 204, 204
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-4-top
+  rotate: false
+  xy: 406, 406
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-5-bottom
+  rotate: false
+  xy: 608, 608
+  size: 200, 200
+  orig: 200, 200
+  offset: 0, 0
+  index: -1
+roles-5-top
+  rotate: false
+  xy: 810, 810
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 selectable
   rotate: false
-  xy: 406, 2
+  xy: 204, 2
   size: 200, 200
   orig: 200, 200
   offset: 0, 0
   index: -1
 village
   rotate: false
-  xy: 608, 204
+  xy: 406, 204
   size: 200, 200
   orig: 200, 200
   offset: 0, 0

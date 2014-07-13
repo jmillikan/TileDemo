@@ -48,6 +48,7 @@ abstract class Board<TileT> extends Widget {
 	float scale;
 	// 
 	String name;
+	TileT emptyChoice;
 	
 	// Is there currently a highlighted set?
 	protected boolean highlight = false;
@@ -69,13 +70,14 @@ abstract class Board<TileT> extends Widget {
 		return true;
 	}
 	
-	public Board(int tilesWide, int tilesHigh, float tileSize, final String name){
+	public Board(int tilesWide, int tilesHigh, float tileSize, TileT empty, final String name){
 		//super();
 		this.tilesWide = tilesWide;
 		this.tilesHigh = tilesHigh;
 		this.tileSize = tileSize;
 		scale = tileSize / 200f;
 		this.name = name;
+		emptyChoice = empty;
 		
 		this.setSize(this.getPrefWidth(), this.getPrefHeight());
 		
@@ -199,7 +201,7 @@ abstract class Board<TileT> extends Widget {
 				float x = getX() + tileSize * j * getScaleX();
 				float y = getY() + tileSize * i * getScaleY();
 				
-				if(tileAt(i,j) != Tile.Empty){
+				if(tileAt(i,j) != emptyChoice){
 					batch.setColor(opaque);
 					
 					drawTile(tileTexture(tileAt(i, j)), batch, x, y);
