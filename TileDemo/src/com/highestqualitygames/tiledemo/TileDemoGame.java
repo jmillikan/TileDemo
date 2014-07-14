@@ -10,9 +10,6 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.Sprite;
-import com.badlogic.gdx.graphics.g2d.TextureAtlas;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
 
 import com.badlogic.gdx.scenes.scene2d.Action;
 import static com.badlogic.gdx.scenes.scene2d.actions.Actions.delay;
@@ -23,92 +20,27 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane.ScrollPaneStyle;
 import com.badlogic.gdx.scenes.scene2d.utils.*;
 
+import com.highestqualitygames.tiledemo.Assets.Tile;
+import com.highestqualitygames.tiledemo.Assets.Role;
+
 public class TileDemoGame implements ApplicationListener {
 	// Used in place of delay to speed/slow actions for smoke testing
 	Action ui_delay(float f){
 		return delay(f / 5);
 	}
 	
-	// NOTE: Tile and Role are (arguable) doing double duty as logical and UI values.
-	// This is not perfect but is working.
-	public enum Tile implements Board.TileSet {
-		Empty, Manor, Forest, Field, Pasture, Village;
-		
-		public boolean IsEmpty(){ return this == Empty; };
-		
-		public TextureRegion tr(){
-			switch(this){
-			case Manor: return manor;
-			case Forest: return forest;
-			case Field: return field;
-			case Pasture: return pasture;
-			case Village: return village;
-			default: throw new Error("Bad tile request");
-			}			
-		}
-	}
-	
-	/* Splitting these to top/bottom is not good game logic, but the game logic is eventually departing this class... */
-	public enum Role implements Board.TileSet {
-		Empty, FieldTop, FieldBottom, PastureTop, PastureBottom, VillageTop, VillageBottom, ManorTop, ManorBottom, ForestTop, ForestBottom;
-
-		public boolean IsEmpty(){ return this == Empty; };
-
-		public TextureRegion tr(){
-			switch(this){
-			case FieldTop: return r1top;
-			case FieldBottom: return r1bottom;
-			case PastureTop: return r2top;
-			case PastureBottom: return r2bottom;
-			case VillageTop: return r3top;
-			case VillageBottom: return r3bottom;
-			case ManorTop: return r4top;
-			case ManorBottom: return r4bottom;
-			case ForestTop: return r5top;
-			case ForestBottom: return r5bottom;
-			default: throw new Error("Bad tile request");
-			}
-		}
-	}
-	
 	public enum PlayerType {
 		LocalHuman, LocalCPU
 	}
 
-	public static Sprite highlight, selectable;
-	
-	TextureRegion bg; 
 	Stage stage;
-	static TextureRegion manor, forest, field, pasture, village;
-	static TextureRegion r1top, r1bottom, r2top, r2bottom, r3top, r3bottom, r4top, r4bottom, r5top, r5bottom;
 	Actor roleChooseLayer;
 	
 	Random random = new Random();
 
 	@Override
 	public void create() {
-		TextureAtlas atlas;
-		atlas = new TextureAtlas(Gdx.files.internal("data/images.atlas"));
-		bg = atlas.findRegion("bg");
-		manor = atlas.findRegion("manor");
-		forest = atlas.findRegion("forest");
-		field = atlas.findRegion("field");
-		pasture = atlas.findRegion("pasture");
-		village = atlas.findRegion("village");
-		
-		r1top = atlas.findRegion("roles-1-top");
-		r1bottom = atlas.findRegion("roles-1-bottom");
-		r2top = atlas.findRegion("roles-2-top");
-		r2bottom = atlas.findRegion("roles-2-bottom");
-		r3top = atlas.findRegion("roles-3-top");
-		r3bottom = atlas.findRegion("roles-3-bottom");
-		r4top = atlas.findRegion("roles-4-top");
-		r4bottom = atlas.findRegion("roles-4-bottom");
-		r5top = atlas.findRegion("roles-5-top");
-		r5bottom = atlas.findRegion("roles-5-bottom");
-		
-		highlight = atlas.createSprite("highlight");
-		selectable = atlas.createSprite("selectable");
+		Assets.load();
 		
 		stage = new Stage();
 		Gdx.input.setInputProcessor(stage);
@@ -132,7 +64,11 @@ public class TileDemoGame implements ApplicationListener {
 
 		stage.addActor(st);
 
-		beginTileSelectRound();
+		(new GameRound("Tile Select Round"){
+			void beginPlayerChoice(int player){
+				
+			}
+		}).beginRound();
 	}
 	
 	@Override
@@ -164,7 +100,6 @@ public class TileDemoGame implements ApplicationListener {
 	
 	// Note: Board displays tiles "Y up", so we reverse that in tileAt.
 	// But 
-	Tile[][] tiles = new Tile[100][5];
 	Role[][] roles = new Role[2][5];
 	int lastRow = 0;
 	Board<Tile> tileBoard, tileQueue, tileChoice;
@@ -172,18 +107,20 @@ public class TileDemoGame implements ApplicationListener {
 	Label announcement;
 	
 	List<Tile> queue = new ArrayList<Tile>();
-	Tile[] playerTileChoice = new Tile[4];
 	
 	/* Strictly an index into roles - NEVER refers to the Board coordinates */
 	class Pair {
-		public int row, col; 
-		public Pair(int r, int c){ row = r; col = c; }	
+		public int row, col;
+		public Pair(int r, int c){ row = r; col = c; }
 	}
 		
-	Role[] playerRoleChoice = new Role[4];
-	
-	PlayerType[] playerType = new PlayerType[4];
-	int players = 4;
+	int players = 3;
+
+	Tile[][] tiles = new Tile[100][players + 1];
+
+	Role[] playerRoleChoice = new Role[players];
+	Tile[] playerTileChoice = new Tile[players];
+	PlayerType[] playerType = new PlayerType[players];
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
 
 	/*
@@ -195,6 +132,30 @@ public class TileDemoGame implements ApplicationListener {
 	 * These will trigger events calling playerTilePlaced (eventually)
 	 * which will call beginPlayerTileChoice again or else begin the next round... 
 	 */
+	
+	public abstract class GameRound {
+		String roundName;
+		
+		public GameRound(String name){
+			roundName = name;
+		}
+		
+		abstract void beginPlayerChoice(int player);
+		
+		void beginRound(){
+			announcement.setText(roundName);
+			
+			stage.addAction(sequence(ui_delay(5.0f), new Action(){
+				public boolean act(float delta){
+					announcement.setText("");
+					
+					beginPlayerTileChoice(0);
+
+					return true;				
+				}
+			}));
+		}
+	}
 	
 	void beginTileSelectRound(){
 		announcement.setText("Tile Selection Round");
@@ -635,7 +596,7 @@ public class TileDemoGame implements ApplicationListener {
 	public Actor makeTileBoard(){
 		fillLastRow(Tile.Manor);
 		
-		tileBoard = new Board<Tile>(5,1,200f,"tileBoard"){
+		tileBoard = new Board<Tile>(players + 1,1,200f,"tileBoard"){
 			Tile tileAt(int row, int col){
 				return tiles[lastRow - row][col];
 			}
@@ -646,7 +607,7 @@ public class TileDemoGame implements ApplicationListener {
 		};
 		
 		ScrollPane p = SP(tileBoard);
-		ScrollPaneStyle s = new ScrollPaneStyle(new TiledDrawable(bg), null, null, null, null);
+		ScrollPaneStyle s = new ScrollPaneStyle(new TiledDrawable(Assets.bg), null, null, null, null);
 		p.setStyle(s);
 		
 		p.setScrollingDisabled(false, false);
@@ -686,7 +647,7 @@ public class TileDemoGame implements ApplicationListener {
 			playerTileChoice[i] = Tile.Empty;
 		}
 		
-		tileChoice = new Board<Tile>(4,1,50f,"tileChoice"){
+		tileChoice = new Board<Tile>(players,1,50f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}	

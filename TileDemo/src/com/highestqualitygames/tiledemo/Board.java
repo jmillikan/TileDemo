@@ -1,16 +1,9 @@
 package com.highestqualitygames.tiledemo;
 
-import sun.security.ssl.Debug;
-
 import com.badlogic.gdx.scenes.scene2d.ui.Widget;
 import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.Batch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
-
-import com.highestqualitygames.tiledemo.TileDemoGame.Tile;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 
@@ -207,12 +200,12 @@ abstract class Board<TileT extends Board.TileSet> extends Widget {
 				if(highlightCell(i,j) || selectedCell(i,j)){
 					batch.setColor(overlay);
 					
-					drawTile(TileDemoGame.highlight, batch, x, y);
+					drawTile(Assets.highlight, batch, x, y);
 				}
 				else if(selectableCell(i,j)){
 					batch.setColor(overlay);
 					
-					drawTile(TileDemoGame.selectable, batch, x, y);
+					drawTile(Assets.selectable, batch, x, y);
 				}
 			}
 		}
