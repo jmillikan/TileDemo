@@ -5,14 +5,6 @@ import java.util.Random;
 import java.util.List;
 import java.util.ArrayList;
 
-import sun.security.ssl.Debug;
-
-import static com.badlogic.gdx.scenes.scene2d.actions.Actions.delay;
-import static com.badlogic.gdx.scenes.scene2d.actions.Actions.sequence;
-import static com.badlogic.gdx.scenes.scene2d.actions.Actions.forever;
-import com.badlogic.gdx.scenes.scene2d.Action;
-import com.badlogic.gdx.scenes.scene2d.InputEvent;
-
 import com.badlogic.gdx.ApplicationListener;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
@@ -22,11 +14,14 @@ import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 
+import com.badlogic.gdx.scenes.scene2d.Action;
+import static com.badlogic.gdx.scenes.scene2d.actions.Actions.delay;
+import static com.badlogic.gdx.scenes.scene2d.actions.Actions.sequence;
+
 import com.badlogic.gdx.scenes.scene2d.*;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane.ScrollPaneStyle;
 import com.badlogic.gdx.scenes.scene2d.utils.*;
-
 
 public class TileDemoGame implements ApplicationListener {
 	// Used in place of delay to speed/slow actions for smoke testing
@@ -34,53 +29,58 @@ public class TileDemoGame implements ApplicationListener {
 		return delay(f / 5);
 	}
 	
-	public enum Tile {
-		Empty, Manor, Forest, Field, Pasture, Village
+	// NOTE: Tile and Role are (arguable) doing double duty as logical and UI values.
+	// This is not perfect but is working.
+	public enum Tile implements Board.TileSet {
+		Empty, Manor, Forest, Field, Pasture, Village;
+		
+		public boolean IsEmpty(){ return this == Empty; };
+		
+		public TextureRegion tr(){
+			switch(this){
+			case Manor: return manor;
+			case Forest: return forest;
+			case Field: return field;
+			case Pasture: return pasture;
+			case Village: return village;
+			default: throw new Error("Bad tile request");
+			}			
+		}
 	}
 	
-	/* Splitting these to top/bottom is not good game logic, but hte game logic is eventually departing this class... */
-	public enum Role {
-		Empty, FieldTop, FieldBottom, PastureTop, PastureBottom, VillageTop, VillageBottom, ManorTop, ManorBottom, ForestTop, ForestBottom 
+	/* Splitting these to top/bottom is not good game logic, but the game logic is eventually departing this class... */
+	public enum Role implements Board.TileSet {
+		Empty, FieldTop, FieldBottom, PastureTop, PastureBottom, VillageTop, VillageBottom, ManorTop, ManorBottom, ForestTop, ForestBottom;
+
+		public boolean IsEmpty(){ return this == Empty; };
+
+		public TextureRegion tr(){
+			switch(this){
+			case FieldTop: return r1top;
+			case FieldBottom: return r1bottom;
+			case PastureTop: return r2top;
+			case PastureBottom: return r2bottom;
+			case VillageTop: return r3top;
+			case VillageBottom: return r3bottom;
+			case ManorTop: return r4top;
+			case ManorBottom: return r4bottom;
+			case ForestTop: return r5top;
+			case ForestBottom: return r5bottom;
+			default: throw new Error("Bad tile request");
+			}
+		}
 	}
 	
 	public enum PlayerType {
 		LocalHuman, LocalCPU
 	}
-	
-	TextureRegion tr(Tile t){
-		switch(t){
-		case Empty: return null;
-		case Manor: return manor;
-		case Forest: return forest;
-		case Field: return field;
-		case Pasture: return pasture;
-		case Village: return village;
-		default: throw new Error("Bad tile request");
-		}
-	}
-	
-	TextureRegion roleTile(Role t){
-		switch(t){
-		case FieldTop: return r1top;
-		case FieldBottom: return r1bottom;
-		case PastureTop: return r2top;
-		case PastureBottom: return r2bottom;
-		case VillageTop: return r3top;
-		case VillageBottom: return r3bottom;
-		case ManorTop: return r4top;
-		case ManorBottom: return r4bottom;
-		case ForestTop: return r5top;
-		case ForestBottom: return r5bottom;
-		default: throw new Error("Bad tile request");
-		}
-	}
-	
+
 	public static Sprite highlight, selectable;
 	
 	TextureRegion bg; 
-	private Stage stage;
-	private TextureRegion manor, forest, field, pasture, village;
-	private TextureRegion r1top, r1bottom, r2top, r2bottom, r3top, r3bottom, r4top, r4bottom, r5top, r5bottom;
+	Stage stage;
+	static TextureRegion manor, forest, field, pasture, village;
+	static TextureRegion r1top, r1bottom, r2top, r2bottom, r3top, r3bottom, r4top, r4bottom, r5top, r5bottom;
 	Actor roleChooseLayer;
 	
 	Random random = new Random();
@@ -116,7 +116,7 @@ public class TileDemoGame implements ApplicationListener {
 		playerType = new PlayerType[] { PlayerType.LocalCPU, PlayerType.LocalHuman, PlayerType.LocalCPU, PlayerType.LocalCPU };
 		fillTileQueue();
 		
-		setBSRoles();
+		setAllRoles();
 		roleChooseLayer = makeChooseRoleLayer();
 		
 		Stack st = new Stack();
@@ -135,12 +135,6 @@ public class TileDemoGame implements ApplicationListener {
 		beginTileSelectRound();
 	}
 	
-	void setBSRoles(){
-		Role[] roleTops = new Role[] { Role.FieldTop, Role.PastureTop, Role.VillageTop, Role.ManorTop, Role.ManorTop, Role.ForestBottom };
-		Role[] roleBottoms = new Role[] { Role.FieldBottom, Role.PastureBottom, Role.VillageBottom, Role.ManorBottom, Role.ForestBottom };
-		roles = new Role[][] { roleTops, roleBottoms };
-	}
-
 	@Override
 	public void dispose() {
 		stage.dispose();
@@ -173,7 +167,8 @@ public class TileDemoGame implements ApplicationListener {
 	Tile[][] tiles = new Tile[100][5];
 	Role[][] roles = new Role[2][5];
 	int lastRow = 0;
-	Board tileBoard, tileQueue, tileChoice, roleChoose;
+	Board<Tile> tileBoard, tileQueue, tileChoice;
+	Board<Role> roleChoose;
 	Label announcement;
 	
 	List<Tile> queue = new ArrayList<Tile>();
@@ -191,14 +186,14 @@ public class TileDemoGame implements ApplicationListener {
 	int players = 4;
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
 
-	/* TILE SELECTION ROUND */
-	
 	/*
+	 *  TILE SELECTION ROUND 
+	 *  
 	 * beginTileSelectRound calls beginPlayerTileChoice
 	 * beginPlayerTileChoice will call either the CPU tile choice
 	 * or human tile choice functions
 	 * These will trigger events calling playerTilePlaced (eventually)
-	 * which will call beginPlayerTileChoice or begin the next round... 
+	 * which will call beginPlayerTileChoice again or else begin the next round... 
 	 */
 	
 	void beginTileSelectRound(){
@@ -298,8 +293,11 @@ public class TileDemoGame implements ApplicationListener {
 		}));		
 	}
 	
-	/* TILE PLACE ROUND */
-	/* Structure here is basically identical to tile choice round! This is good! */
+	/*
+	 *  TILE PLACE ROUND
+	 *  
+	 *   Structure here is basically identical to tile choice round
+	 */
 	
 	public void beginTilePlaceRound(){
 		announcement.setText("Tile placement round");
@@ -397,7 +395,11 @@ public class TileDemoGame implements ApplicationListener {
 		}
 	}
 	
-	/* CHOOSE ROLE PHASE */
+	/*
+	 *  ROLE CHOICE ROUND
+	 *  
+	 *   Structure here is basically identical to tile choice round
+	 */
 	
 	void beginRoleChoiceRound(){
 		announcement.setText("Role Choice Round");
@@ -492,7 +494,7 @@ public class TileDemoGame implements ApplicationListener {
 		this.playerRoleChoice[player] = t;
 		
 		if(player + 1 >= players){
-			setBSRoles();
+			setAllRoles();
 			
 			this.roleChooseLayer.setVisible(false);
 
@@ -503,89 +505,87 @@ public class TileDemoGame implements ApplicationListener {
 		}
 	}
 	
-	/* CPU CHOICE AND PLAYER DEFAULT FUNCTIONS */
+	/*
+	 *  CPU CHOICE AND PLAYER DEFAULTS
+	 */
+
+	// Return all indices in the first N that either DO (emptyAvailable) or DONT (!emptyAvailable) match the empty value.
+	<T> List<Integer> availableIndices(List<T> ts, int n, T empty, boolean emptyAvailable) {
+		List<Integer> indices = new ArrayList<Integer>();
+		for(int i = 0; i < n; i++){
+			if(emptyAvailable && ts.get(i) == empty){
+				indices.add(i);
+			}
+			else if(!emptyAvailable && ts.get(i) != empty){
+				indices.add(i);
+			}
+		}
+		return indices;
+	}
 
 	// Give an index into the queue of tile choice for CPU player 
 	// Currently random.
-	public int cpuChooseTile(int player){
-		List<Integer> availableIndices = new ArrayList<Integer>();
-		
-		for(int i = 0; i < players + 1; i++){
-			if(queue.get(i) != Tile.Empty){
-				availableIndices.add(i);
-			}
-		}
-		
-		return availableIndices.get(random.nextInt(availableIndices.size()));
+	int cpuChooseTile(int player){
+		List<Integer> availableTiles = this.availableIndices(queue, players + 1, Tile.Empty, false);
+
+		return availableTiles.get(random.nextInt(availableTiles.size()));
 	}
 	
 	public int defaultTileIndex(){
-		for(int i = 0; i < players + 1; i++){
-			if(queue.get(i) != Tile.Empty){
-				return i;
-			}
-		}
+		List<Integer> availableTiles = this.availableIndices(queue, players + 1, Tile.Empty, false);
+
+		if(availableTiles.size() > 0)
+			return availableTiles.get(0);
 		
 		throw new Error("No default tile");
 	}
 	
 	public int cpuChooseRandomColumn(int player){
-		List<Integer> availableColumns = new ArrayList<Integer>();
-		
-		for(int i = 0; i < players + 1; i++){
-			if(tiles[lastRow][i] == Tile.Empty){
-				availableColumns.add(i);
-			}
-		}
+		List<Integer> availableColumns = this.availableIndices(Arrays.asList(tiles[lastRow]), players + 1, Tile.Empty, true);
 		
 		return availableColumns.get(random.nextInt(availableColumns.size()));
 	}
 	
 	Pair cpuChooseRandomRole(int player){
-		List<Integer> availableRoles = new ArrayList<Integer>();
+		List<Integer> availableRoles = this.availableIndices(Arrays.asList(roles[0]), 5, Role.Empty, false);
 		
-		for(int i = 0; i < 5; i++){
-			if(roles[0][i] != Role.Empty){
-				availableRoles.add(i);
-			}
-		}
-		
-		Pair p = new Pair(random.nextBoolean() ? 0 : 1, availableRoles.get(random.nextInt(availableRoles.size())));
-
-		return p;
+		return new Pair(random.nextBoolean() ? 0 : 1, availableRoles.get(random.nextInt(availableRoles.size())));
 	}
 	
 	Pair defaultRoleChoice(int player){
-		List<Integer> availableRoles = new ArrayList<Integer>();
-		
-		for(int i = 0; i < 5; i++){
-			if(roles[0][i] != Role.Empty){
-				availableRoles.add(i);
-			}
-		}
+		List<Integer> availableRoles = this.availableIndices(Arrays.asList(roles[0]), 5, Role.Empty, false);
 		
 		return new Pair(1, availableRoles.get(0));
 	}
 
 	public int defaultColumn(){
-		for(int i = 0; i < players + 1; i++){
-			if(tiles[lastRow][i] == Tile.Empty){
-				return i;
-			}
-		}
+		List<Integer> availableColumns = this.availableIndices(Arrays.asList(tiles[lastRow]), players + 1, Tile.Empty, true);
+
+		if(availableColumns.size() > 0)
+			return availableColumns.get(0);
 		
 		throw new Error("No default column available");
 	}
 	
-	/* HANDLE TILE BOARD AND QUEUE */
+	/*
+	 *  HANDLE TILE BOARD, QUEUE, ROLES 
+	 */
 	
+	void setAllRoles(){
+		roles = new Role[][] { 
+				{ Role.FieldTop, Role.PastureTop, Role.VillageTop, Role.ManorTop, Role.ManorTop, Role.ForestBottom },
+				{ Role.FieldBottom, Role.PastureBottom, Role.VillageBottom, Role.ManorBottom, Role.ForestBottom }
+		};
+	}
+
+	// Fill last row of tiles with just t (usually Tile.Empty)
 	public void fillLastRow(Tile t){
 		for(int i = 0; i < tiles[lastRow].length; i++){
 			tiles[lastRow][i] = t;
 		}
 	}
 	
-	// TODO: Generate a set of tiles and randomize it instead...
+	// Add 50 random tiles to the queue
 	public void fillTileQueue(){
 		java.util.List<Tile> tileValues = Arrays.asList(Tile.values());
 		Random r = new Random();
@@ -601,7 +601,7 @@ public class TileDemoGame implements ApplicationListener {
 	// Error if tile queue ends up short.
 	public void shiftTileQueue(){
 		if(queue.size() < 2 * players + 1){
-			throw new Error("Ran out of players!");
+			throw new Error("Ran out of tiles!");
 		}
 
 		for(int checked = 0, i = 0; checked < players + 1; checked++){
@@ -616,7 +616,9 @@ public class TileDemoGame implements ApplicationListener {
 		tileQueue.resizeBoard(queue.size(), 1);
 	}
 	
-	/* MAKE GAME DISPLAY LAYERS */
+	/*
+	 *  MAKE GAME DISPLAY LAYERS
+	 */
 
 	<A extends Actor> Container<A> C(A a){
 		Container<A> c = new Container<A>(a);
@@ -633,7 +635,7 @@ public class TileDemoGame implements ApplicationListener {
 	public Actor makeTileBoard(){
 		fillLastRow(Tile.Manor);
 		
-		tileBoard = new Board<Tile>(5,1,200f,Tile.Empty,"tileBoard"){
+		tileBoard = new Board<Tile>(5,1,200f,"tileBoard"){
 			Tile tileAt(int row, int col){
 				return tiles[lastRow - row][col];
 			}
@@ -641,8 +643,6 @@ public class TileDemoGame implements ApplicationListener {
 			boolean tileSelectable(int row, int col){
 				return tiles[lastRow - row][col] == Tile.Empty;
 			}
-			
-			TextureRegion tileTexture(Tile t){ return tr(t); }
 		};
 		
 		ScrollPane p = SP(tileBoard);
@@ -665,7 +665,7 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	public Actor makeTileQueueLayer(){
-		tileQueue = new Board<Tile>(50,1,100f,Tile.Empty,"tileQueue"){
+		tileQueue = new Board<Tile>(50,1,100f,"tileQueue"){
 			Tile tileAt(int row, int col){
 				return queue.get(col);
 			}
@@ -673,14 +673,12 @@ public class TileDemoGame implements ApplicationListener {
 			boolean tileSelectable(int row, int col){
 				return queue.get(col) != Tile.Empty;
 			}
-			
-			TextureRegion tileTexture(Tile t){ return tr(t); }
 		};
 		
-		ScrollPane pane = SP(C(tileQueue).padLeft(200f).fill(0, 0));
+		ScrollPane pane = SP(C(tileQueue).padLeft(this.stage.getWidth() - 180f).fill(0, 0));
 		pane.setupOverscroll(0f, 0f, 0f);
 		
-		return C(pane).padTop(0f).top().fill(1f,0f);
+		return C(pane).padTop(30f).top().fill(1f,0f);
 	}
 
 	public Actor makeTileChoiceLayer(){
@@ -688,19 +686,17 @@ public class TileDemoGame implements ApplicationListener {
 			playerTileChoice[i] = Tile.Empty;
 		}
 		
-		tileChoice = new Board<Tile>(4,1,50f,Tile.Empty,"tileChoice"){
+		tileChoice = new Board<Tile>(4,1,50f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
-			}
-
-			TextureRegion tileTexture(Tile t){ return tr(t); }			
+			}	
 		};
 		
 		return C(SP(tileChoice)).padBottom(10f).bottom().fill(1f,0f);
 	}
 
 	public Actor makeChooseRoleLayer(){
-		roleChoose = new Board<Role>(5,2,150f,Role.Empty,"chooseRole"){
+		roleChoose = new Board<Role>(5,2,150f,"chooseRole"){
 			Role tileAt(int row, int col){
 				return roles[1 - row][col];	
 			}
@@ -708,8 +704,6 @@ public class TileDemoGame implements ApplicationListener {
 			boolean tileSelectable(int row, int col){
 				return roles[1 - row][col] != Role.Empty;
 			}
-			
-			TextureRegion tileTexture(Role t){ return roleTile(t); }
 		};
 		
 		return C(SP(roleChoose)).bottom();

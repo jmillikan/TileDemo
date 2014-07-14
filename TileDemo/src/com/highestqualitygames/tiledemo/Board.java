@@ -21,7 +21,7 @@ highlighted region and a selection mechanism. Not very general.
 As much as I don't like inheritance I'm too lazy to rip it out right now.
 Here's a typical use of Board:
 
-		tileChoice = new Board<Tile>(4,1){
+		tileChoice = new Board<Tile>(...,"tileChoice",tileTS){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}
@@ -30,17 +30,20 @@ Here's a typical use of Board:
 			boolean tileSelectable(int row, int col){
 			    return col % 2 == 0;
 			}
-			
-			Sprite tileSprite(Tile t){ return ts(t); }
 		};
 		
 highlightSet sets a rectangular region of highlighted tiles.
 Selectable tiles are constrained by selectionSet and then by tileSelectable.
  */
 
-abstract class Board<TileT> extends Widget {
+abstract class Board<TileT extends Board.TileSet> extends Widget {
 	// Note: Just about everything here is row major, row first - int row, int col; int i (row) vs int j (col) etc
 	// I try not to refer to row/col as y/x or x/y.
+	
+	public interface TileSet {
+		TextureRegion tr();
+		boolean IsEmpty();
+	}
 	
 	protected int tilesWide, tilesHigh;
 	// Because of brain damage in libgdx, use this as a manual scaling factor... 
@@ -48,7 +51,6 @@ abstract class Board<TileT> extends Widget {
 	float scale;
 	// 
 	String name;
-	TileT emptyChoice;
 	
 	// Is there currently a highlighted set?
 	protected boolean highlight = false;
@@ -64,20 +66,18 @@ abstract class Board<TileT> extends Widget {
 	protected int selectedCol;
 	
 	abstract TileT tileAt(int row, int column);
-	abstract TextureRegion tileTexture(TileT t);
 
 	boolean tileSelectable(int row, int column){
 		return true;
 	}
 	
-	public Board(int tilesWide, int tilesHigh, float tileSize, TileT empty, final String name){
+	public Board(int tilesWide, int tilesHigh, float tileSize, final String n){
 		//super();
 		this.tilesWide = tilesWide;
 		this.tilesHigh = tilesHigh;
 		this.tileSize = tileSize;
 		scale = tileSize / 200f;
-		this.name = name;
-		emptyChoice = empty;
+		name = n;
 		
 		this.setSize(this.getPrefWidth(), this.getPrefHeight());
 		
@@ -89,9 +89,6 @@ abstract class Board<TileT> extends Widget {
 	}
 	
 	void click(float x, float y){
-		Debug.println("Board", String.format("On %s at (%f,%f), %f x %f @ (%f,%f)", 
-				name, getX(), getY(), getWidth(), getHeight(), x, y));
-
 		if(selecting){
 			int col = (int) java.lang.Math.floor(x / tileSize);
 			int row = (int) java.lang.Math.floor(y / tileSize);
@@ -201,10 +198,10 @@ abstract class Board<TileT> extends Widget {
 				float x = getX() + tileSize * j * getScaleX();
 				float y = getY() + tileSize * i * getScaleY();
 				
-				if(tileAt(i,j) != emptyChoice){
+				if(!tileAt(i,j).IsEmpty()){
 					batch.setColor(opaque);
 					
-					drawTile(tileTexture(tileAt(i, j)), batch, x, y);
+					drawTile(tileAt(i, j).tr(), batch, x, y);
 				}
 
 				if(highlightCell(i,j) || selectedCell(i,j)){
