@@ -1,5 +1,7 @@
 package com.highestqualitygames.tiledemo;
 
+import sun.security.ssl.Debug;
+
 import com.badlogic.gdx.scenes.scene2d.ui.Widget;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.Batch;
@@ -82,6 +84,9 @@ abstract class Board<TileT extends Board.TileSet> extends Widget {
 	}
 	
 	void click(float x, float y){
+	Debug.println("Board", String.format("On %s at (%f,%f), %f x %f @ (%f,%f)", 
+			name, getX(), getY(), getWidth(), getHeight(), x, y));
+	
 		if(selecting){
 			int col = (int) java.lang.Math.floor(x / tileSize);
 			int row = (int) java.lang.Math.floor(y / tileSize);

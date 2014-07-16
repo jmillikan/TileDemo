@@ -54,9 +54,10 @@ public class TileDemoGame implements ApplicationListener {
 		Stack st = new Stack();
 		st.add(makeTileBoard());
 		st.add(makeTileChoiceLayer());
-		st.add(makeAnnouncementLayer());
+		st.add(makeRoleChoiceLayer());
 		st.add(makeTileQueueLayer());
 		st.add(roleChooseLayer);
+		st.add(makeAnnouncementLayer());
 		
 		roleChooseLayer.setVisible(false);
 		
@@ -64,11 +65,7 @@ public class TileDemoGame implements ApplicationListener {
 
 		stage.addActor(st);
 
-		(new GameRound("Tile Select Round"){
-			void beginPlayerChoice(int player){
-				
-			}
-		}).beginRound();
+		new TileChoiceRound().beginRound();
 	}
 	
 	@Override
@@ -103,7 +100,7 @@ public class TileDemoGame implements ApplicationListener {
 	Role[][] roles = new Role[2][5];
 	int lastRow = 0;
 	Board<Tile> tileBoard, tileQueue, tileChoice;
-	Board<Role> roleChoose;
+	Board<Role> roleChoose, roleChoice;
 	Label announcement;
 	
 	List<Tile> queue = new ArrayList<Tile>();
@@ -123,349 +120,282 @@ public class TileDemoGame implements ApplicationListener {
 	PlayerType[] playerType = new PlayerType[players];
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
 
+
 	/*
-	 *  TILE SELECTION ROUND 
-	 *  
-	 * beginTileSelectRound calls beginPlayerTileChoice
-	 * beginPlayerTileChoice will call either the CPU tile choice
-	 * or human tile choice functions
-	 * These will trigger events calling playerTilePlaced (eventually)
-	 * which will call beginPlayerTileChoice again or else begin the next round... 
+	 * GAME ROUNDS
 	 */
 	
-	public abstract class GameRound {
-		String roundName;
+	public abstract class GameRound<Choice> {
+		String roundName, beginHumanChoiceText, longHumanChoiceText;
 		
-		public GameRound(String name){
+		public GameRound(String name, String beginHuman, String longHuman){
 			roundName = name;
+			beginHumanChoiceText = beginHuman;
+			longHumanChoiceText = longHuman;
 		}
 		
-		abstract void beginPlayerChoice(int player);
+		abstract void initHumanChoice(int player);
+		abstract boolean humanMadeChoice(int player);
+		abstract void initHumanLongChoice(int player);
+		abstract Choice completeHumanChoice(int player);
 		
+		abstract void initCPUChoice(int player);
+		abstract Choice completeCPUChoice(int player);
+		abstract void applyPlayerChoice(int player, Choice c);
+		abstract void initRound();
+		
+		abstract void roundOver();
+
 		void beginRound(){
 			announcement.setText(roundName);
+			
+			initRound();
 			
 			stage.addAction(sequence(ui_delay(5.0f), new Action(){
 				public boolean act(float delta){
 					announcement.setText("");
 					
-					beginPlayerTileChoice(0);
+					beginPlayerChoice(0);
 
 					return true;				
 				}
 			}));
 		}
-	}
-	
-	void beginTileSelectRound(){
-		announcement.setText("Tile Selection Round");
 		
-		stage.addAction(sequence(ui_delay(5.0f), new Action(){
-			public boolean act(float delta){
-				announcement.setText("");
-				
-				beginPlayerTileChoice(0);
-
-				return true;				
+		void beginPlayerChoice(int player){
+			if(playerType[player] == PlayerType.LocalCPU){
+				beginCPUChoice(player);
 			}
-		}));
-	}
-
-	void beginPlayerTileChoice(int player){
-		if(playerType[player] == PlayerType.LocalCPU){
-			cpuSelectTile(player, cpuChooseTile(player));
-		}
-		else {
-			humanSelectTile(player);
-		}
-	}
-	
-	// Computer player X selects a tile.
-	// Highlight tile and wait 3 seconds, then move on.
-	public void cpuSelectTile(final int player, final int queueIndex){
-		tileQueue.highlightSet(0, queueIndex, 1, 1);
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float f){
-				tileQueue.clearHighlights();
-				
-				playerSelectedTile(player, queueIndex);
-				
-				return true;
+			else {
+				beginHumanChoice(player);
 			}
-		}));		
-	}
-	
-	void playerSelectedTile(int player, int queueIndex){
-		// Test: Move first tile in queue to first spot in lastRow
-		Tile selectedTile = queue.get(queueIndex);
-		queue.set(queueIndex, Tile.Empty);
-		playerTileChoice[player] = selectedTile;
-						
-		if(player + 1 >= players){
-			shiftTileQueue();
-			beginTilePlaceRound();
 		}
-		else {
-			beginPlayerTileChoice(player + 1);
-		}
-	}
-	
-	void humanSelectTile(final int player){
-		tileQueue.selectionSet(0, 0, 1, players + 1);
 		
-		announcement.setText("Pick a tile. >3s for speed bonus!");
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float f){
-				if(tileQueue.hasSelection()){
-					announcement.setText("");
-					
-					int col = tileQueue.selectedCol();
-					announcement.setText("");
-					tileQueue.clearSelecting();
-
-					playerSelectedTile(player, col);
-				}
-				else {
-					announcement.setText("Pick a tile. 12s remaining");
-					
-					tileQueue.setSelection(0, defaultTileIndex());
-
-					stage.addAction(sequence(ui_delay(12.0f), new Action(){
-						public boolean act(float f){
-							if(!tileQueue.hasSelection()){
-								throw new Error("No tile selected from queue. Event ordering problems likely.");
-							}
-							
-							int col = tileQueue.selectedCol();
-							announcement.setText("");
-							tileQueue.clearSelecting();
-							
-							playerSelectedTile(player, col);
-							
-							return true;
-						}
-					}));		
-				}
-				
-				return true;
-			}
-		}));		
-	}
-	
-	/*
-	 *  TILE PLACE ROUND
-	 *  
-	 *   Structure here is basically identical to tile choice round
-	 */
-	
-	public void beginTilePlaceRound(){
-		announcement.setText("Tile placement round");
-		
-		lastRow++;
-		tileBoard.resizeBoard(players + 1, lastRow + 1);
-		this.fillLastRow(Tile.Empty);
-		
-		stage.addAction(sequence(ui_delay(5.0f), new Action(){
-			public boolean act(float delta){
-				announcement.setText("");
-				
-				beginPlayerTilePlace(0);
-				
-				return true;
-			}
-		}));
-	}
-	
-	public void beginPlayerTilePlace(int player){
-		if(playerType[player] == PlayerType.LocalCPU){
-			cpuPlaceTile(player, cpuChooseRandomColumn(player));
-		}
-		else {
-			humanPlaceTile(player);
-		}
-	}
-	
-	public void cpuPlaceTile(final int player, final int column){
-		tileBoard.highlightSet(0, column, 1, 1);
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float delta){
-				tileBoard.clearHighlights();
-				
-				playerTilePlaced(player, column);
-				
-				return true;
-			}
-		}));
-	}
-	
-	public void humanPlaceTile(final int player){
-		announcement.setText("Pick a column. >3s for speed bonus!");
-		
-		tileBoard.selectionSet(0, 0, 1, players + 1);
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float f){
-				if(tileBoard.hasSelection()){
-					announcement.setText("");
-					
-					playerTilePlaced(player, tileBoard.selectedCol());
-					
-					tileBoard.clearSelecting();
-				}
-				else {
-					announcement.setText("Pick a column. 12s remaining");
-					
-					tileBoard.setSelection(0, defaultColumn());
-
-					stage.addAction(sequence(ui_delay(12.0f), new Action(){
-						public boolean act(float f){
-							announcement.setText("");
-							
-							if(!tileBoard.hasSelection()){
-								throw new Error("No selection somehow, probably bad event order");
-							}
-							
-							playerTilePlaced(player, tileBoard.selectedCol());
-							
-							tileBoard.clearSelecting();
-							
-							return true;
-						}
-					}));		
-				}
-				
-				return true;
-			}
-		}));		
-	}
-	
-	public void playerTilePlaced(int player, int column){
-		Tile t = TileDemoGame.this.playerTileChoice[player];
-		playerTileChoice[player] = Tile.Empty;
-		
-		tiles[lastRow][column] = t;
-		
-		if(player + 1 >= players){
-			TileDemoGame.this.beginRoleChoiceRound();
-		}
-		else {
-			beginPlayerTilePlace(player + 1);
-		}
-	}
-	
-	/*
-	 *  ROLE CHOICE ROUND
-	 *  
-	 *   Structure here is basically identical to tile choice round
-	 */
-	
-	void beginRoleChoiceRound(){
-		announcement.setText("Role Choice Round");
-		
-		roleChooseLayer.setVisible(true);
-		
-		stage.addAction(sequence(ui_delay(10.0f), new Action(){
-			public boolean act(float delta){
-				announcement.setText("");
-
-				beginPlayerChooseRole(0);
-
-				return true;				
-			}
-		}));
-	}
-	
-	void beginPlayerChooseRole(int player){
-		if(playerType[player] == PlayerType.LocalCPU){
-			cpuChooseRole(player, cpuChooseRandomRole(player));
-		}
-		else {
-			humanChooseRole(player);
-		}
-	}
-	
-	void cpuChooseRole(final int player, final Pair roleChosen){
-		roleChoose.highlightSet(1 - roleChosen.row, roleChosen.col, 1, 1);
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float delta){
-				roleChoose.clearHighlights();
-				
-				playerRoleChosen(player, roleChosen);
-				
-				return true;
-			}
-		}));		
-	}
-	
-	void humanChooseRole(final int player){
-		announcement.setText("Choose a role. < 3s for bonus.");
-		
-		roleChoose.selectionSet(0, 0, 2, 5);
-		
-		stage.addAction(sequence(ui_delay(3.0f), new Action(){
-			public boolean act(float f){
-				if(roleChoose.hasSelection()){
-					announcement.setText("");
-					
-					Pair p = new Pair(roleChoose.selectedRow(), roleChoose.selectedCol());
-					
-					playerRoleChosen(player, p);
-					
-					roleChoose.clearSelecting();
-				}
-				else {
-					announcement.setText("Choose a role. 12s remaining");
-					
-					Pair defaultRoleChoice = defaultRoleChoice(player);
-					roleChoose.setSelection(1 - defaultRoleChoice.row, defaultRoleChoice.col);
-
-					stage.addAction(sequence(ui_delay(12.0f), new Action(){
-						public boolean act(float f){
-							announcement.setText("");
-							
-							if(!roleChoose.hasSelection()){
-								throw new Error("No selection somehow, probably bad event order");
-							}
-
-							Pair p = new Pair(1 - roleChoose.selectedRow(), roleChoose.selectedCol());
-							
-							playerRoleChosen(player, p);
-							
-							roleChoose.clearSelecting();
-							
-							return true;
-						}
-					}));		
-				}
-				
-				return true;
-			}
-		}));		
-	}
-
-	public void playerRoleChosen(int player, Pair p){
-		Role t = TileDemoGame.this.roles[p.row][p.col];
-		roles[0][p.col] = Role.Empty;
-		roles[1][p.col] = Role.Empty;
-		
-		this.playerRoleChoice[player] = t;
-		
-		if(player + 1 >= players){
-			setAllRoles();
+		// Computer player X selects a tile.
+		// Highlight tile and wait 3 seconds, then move on.
+		void beginCPUChoice(final int player){
+			initCPUChoice(player);
 			
-			this.roleChooseLayer.setVisible(false);
+			stage.addAction(sequence(ui_delay(3.0f), new Action(){
+				public boolean act(float f){
+					Choice c = completeCPUChoice(player);
 
-			this.beginTileSelectRound();
+					completePlayerChoice(player, c);
+					
+					return true;
+				}
+			}));		
 		}
-		else {
-			this.beginPlayerChooseRole(player + 1);
+
+		void completePlayerChoice(int player, Choice c){
+			// Test: Move first tile in queue to first spot in lastRow
+			
+			applyPlayerChoice(player, c);
+			
+			if(player + 1 >= players){
+				roundOver();
+			}
+			else {
+				beginPlayerChoice(player + 1);
+			}
+		}
+		
+		void beginHumanChoice(final int player){
+			initHumanChoice(player);
+
+			announcement.setText(beginHumanChoiceText);
+			
+			stage.addAction(sequence(ui_delay(3.0f), new Action(){
+				public boolean act(float f){
+					if(humanMadeChoice(player)){
+						announcement.setText("");
+						
+						Choice c = completeHumanChoice(player);
+						
+						completePlayerChoice(player, c);
+					}
+					else {
+						announcement.setText(longHumanChoiceText);
+						
+						initHumanLongChoice(player);
+
+						stage.addAction(sequence(ui_delay(12.0f), new Action(){
+							public boolean act(float f){
+								if(!humanMadeChoice(player)){
+									throw new Error("No tile selected from queue. Event ordering problems likely.");
+								}
+		
+								Choice c = completeHumanChoice(player);
+
+								completePlayerChoice(player, c);
+								
+								return true;
+							}
+						}));		
+					}
+					
+					return true;
+				}
+			}));		
 		}
 	}
 	
+	class TileChoiceRound extends GameRound<Integer> {
+		int choice;
+		
+		public TileChoiceRound(){
+			super("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining");
+		}
+		
+		void initCPUChoice(int player){
+			choice = randomAvailableTile(player);
+			tileQueue.highlightSet(0, choice, 1, 1);
+		}
+		
+		Integer completeCPUChoice(int player){
+			tileQueue.clearHighlights();
+			return choice;
+		}
+		
+		void applyPlayerChoice(int player, Integer queueIndex){
+			playerTileChoice[player] = queue.get(queueIndex);
+			queue.set(queueIndex, Tile.Empty);
+		}
+		
+		void roundOver(){
+			shiftTileQueue();
+			new TilePlaceRound().beginRound();
+		}
+		
+		void initHumanChoice(int player){
+			tileQueue.selectionSet(0, 0, 1, players + 1);
+		}
+		
+		void initHumanLongChoice(int player){
+			tileQueue.setSelection(0, defaultTileIndex());
+		}
+		
+		Integer completeHumanChoice(int player){
+			int col = tileQueue.selectedCol();
+			announcement.setText("");
+			tileQueue.clearSelecting();
+			
+			return col;
+		}
+		
+		boolean humanMadeChoice(int player){
+			return tileQueue.hasSelection();
+		}
+		
+		void initRound(){}
+	}
+	
+	class TilePlaceRound extends GameRound<Integer> {
+		int choice;
+		
+		public TilePlaceRound(){
+			super("Tile placement round", "Pick a column. >3s for speed bonus!", "");
+		}
+		
+		void initRound(){
+			lastRow++;
+			tileBoard.resizeBoard(players + 1, lastRow + 1);
+			fillLastRow(Tile.Empty);
+		}
+		
+		void initCPUChoice(int player){
+			choice = cpuChooseRandomColumn(player);
+			tileBoard.highlightSet(0, choice, 1, 1);
+		}
+		
+		Integer completeCPUChoice(int player){
+			tileBoard.clearHighlights();
+			return choice;
+		}
+		
+		void initHumanChoice(int player){
+			tileBoard.selectionSet(0, 0, 1, players + 1);
+		}
+		
+		void initHumanLongChoice(int player){
+			tileBoard.setSelection(0, defaultColumn());
+		}
+		
+		Integer completeHumanChoice(int player){
+			int col = tileBoard.selectedCol(); 					
+			tileBoard.clearSelecting();
+			return col;
+		}
+		
+		boolean humanMadeChoice(int player){
+			return tileBoard.hasSelection();
+		}
+		
+		void roundOver(){
+			new RoleChoiceRound().beginRound();
+		}
+		
+		void applyPlayerChoice(int player, Integer column){
+			Tile t = TileDemoGame.this.playerTileChoice[player];
+			playerTileChoice[player] = Tile.Empty;
+			
+			tiles[lastRow][column] = t;
+		}
+	}
+	
+	class RoleChoiceRound extends GameRound<Pair> {
+		Pair choice;
+		
+		public RoleChoiceRound(){
+			super("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.");
+		}
+		
+		void initRound(){
+			roleChooseLayer.setVisible(true);
+			setAllRoles();
+		}
+		
+		void initCPUChoice(int player){
+			choice = cpuChooseRandomRole(player);
+			roleChoose.highlightSet(choice.row, choice.col, 1, 1);
+		}
+		
+		Pair completeCPUChoice(int player){
+			roleChoose.clearHighlights();
+			return choice;
+		}
+		
+		void initHumanChoice(int player){
+			roleChoose.selectionSet(0, 0, Integer.MAX_VALUE, Integer.MAX_VALUE);
+		}
+		
+		void initHumanLongChoice(int player){
+			Pair r = defaultRole(player);
+			roleChoose.setSelection(r.row, r.col);
+		}
+		
+		Pair completeHumanChoice(int player){
+			Pair p  = new Pair(roleChoose.selectedRow(), roleChoose.selectedCol()); 					
+			roleChoose.clearSelecting();
+			return p;
+		}
+		
+		boolean humanMadeChoice(int player){
+			return roleChoose.hasSelection();
+		}
+		
+		void roundOver(){
+			roleChooseLayer.setVisible(false);
+			new TileChoiceRound().beginRound();
+		}
+		
+		void applyPlayerChoice(int player, Pair role){
+			playerRoleChoice[player] = roles[role.row][role.col];
+			roles[0][role.col] = Role.Empty;
+			roles[1][role.col] = Role.Empty; 
+		}
+	}
+
 	/*
 	 *  CPU CHOICE AND PLAYER DEFAULTS
 	 */
@@ -486,7 +416,7 @@ public class TileDemoGame implements ApplicationListener {
 
 	// Give an index into the queue of tile choice for CPU player 
 	// Currently random.
-	int cpuChooseTile(int player){
+	int randomAvailableTile(int player){
 		List<Integer> availableTiles = this.availableIndices(queue, players + 1, Tile.Empty, false);
 
 		return availableTiles.get(random.nextInt(availableTiles.size()));
@@ -513,7 +443,7 @@ public class TileDemoGame implements ApplicationListener {
 		return new Pair(random.nextBoolean() ? 0 : 1, availableRoles.get(random.nextInt(availableRoles.size())));
 	}
 	
-	Pair defaultRoleChoice(int player){
+	Pair defaultRole(int player){
 		List<Integer> availableRoles = this.availableIndices(Arrays.asList(roles[0]), 5, Role.Empty, false);
 		
 		return new Pair(1, availableRoles.get(0));
@@ -647,13 +577,27 @@ public class TileDemoGame implements ApplicationListener {
 			playerTileChoice[i] = Tile.Empty;
 		}
 		
-		tileChoice = new Board<Tile>(players,1,50f,"tileChoice"){
+		tileChoice = new Board<Tile>(players,1,80f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}	
 		};
 		
-		return C(SP(tileChoice)).padBottom(10f).bottom().fill(1f,0f);
+		return C(tileChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
+	}
+
+	public Actor makeRoleChoiceLayer(){
+		for(int i = 0; i < players; i++){
+			playerRoleChoice[i] = Role.Empty;
+		}
+		
+		roleChoice = new Board<Role>(players,1,80f,"roleChoice"){
+			Role tileAt(int row, int col){
+				return playerRoleChoice[col];
+			}	
+		};
+		
+		return C(roleChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
 	}
 
 	public Actor makeChooseRoleLayer(){
