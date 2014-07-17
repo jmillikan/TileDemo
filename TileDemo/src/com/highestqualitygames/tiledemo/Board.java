@@ -42,6 +42,7 @@ abstract class Board<TileT extends Board.TileSet, PieceT extends Board.TileSet> 
 	}
 	
 	protected int tilesWide, tilesHigh;
+	
 	// Because of brain damage in libgdx, use this as a manual scaling factor... 
 	float tileSize, pieceSize;
 	float scale;
