@@ -20,8 +20,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane.ScrollPaneStyle;
 import com.badlogic.gdx.scenes.scene2d.utils.*;
 
-import com.highestqualitygames.tiledemo.Assets.Tile;
-import com.highestqualitygames.tiledemo.Assets.Role;
+import com.highestqualitygames.tiledemo.Assets.*;
 
 public class TileDemoGame implements ApplicationListener {
 	// Used in place of delay to speed/slow actions for smoke testing
@@ -29,7 +28,7 @@ public class TileDemoGame implements ApplicationListener {
 		return delay(f / 5);
 	}
 	
-	public enum PlayerType {
+	enum PlayerType {
 		LocalHuman, LocalCPU
 	}
 
@@ -45,10 +44,18 @@ public class TileDemoGame implements ApplicationListener {
 		stage = new Stage();
 		Gdx.input.setInputProcessor(stage);
 		
-		playerType = new PlayerType[] { PlayerType.LocalCPU, PlayerType.LocalHuman, PlayerType.LocalCPU, PlayerType.LocalCPU };
+		resetRoleChoices();
+		for(int i = 0; i < players; i++){
+			playerTileChoice[i] = Tile.Empty;
+		}
+		fillLastRow(Tile.Manor);
 		fillTileQueue();
 		
 		setAllRoles();
+		
+		playerType = new PlayerType[] { PlayerType.LocalCPU, PlayerType.LocalHuman, PlayerType.LocalCPU, PlayerType.LocalCPU };
+		playerColors = new Worker[] { Worker.Black, Worker.Orange, Worker.White, Worker.Teal };
+		
 		roleChooseLayer = makeChooseRoleLayer();
 		
 		Stack st = new Stack();
@@ -95,12 +102,16 @@ public class TileDemoGame implements ApplicationListener {
 	}
 	
 	
-	// Note: Board displays tiles "Y up", so we reverse that in tileAt.
-	// But 
+	// Note: Board displays tiles "Y up", so we reverse that in tileAt and 
+	// elsewhere with lastRow - <row in board> or 1 - <row in board>
 	Role[][] roles = new Role[2][5];
 	int lastRow = 0;
-	Board<Tile> tileBoard, tileQueue, tileChoice;
-	Board<Role> roleChoose, roleChoice;
+	Board<Tile,Worker> tileBoard;
+	// Hack sort of...
+	boolean placingWorkers = false;
+	
+	Board<Tile,Tile> tileQueue, tileChoice;
+	Board<Role,Role> roleChoose, roleChoice;
 	Label announcement;
 	
 	List<Tile> queue = new ArrayList<Tile>();
@@ -114,18 +125,19 @@ public class TileDemoGame implements ApplicationListener {
 	int players = 3;
 
 	Tile[][] tiles = new Tile[100][players + 1];
+	boolean[][][] workers = new boolean[players + 1][100][players + 1];
+	Worker[] playerColors = new Worker[players];
 
 	Role[] playerRoleChoice = new Role[players];
 	Tile[] playerTileChoice = new Tile[players];
 	PlayerType[] playerType = new PlayerType[players];
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
 
-
 	/*
 	 * GAME ROUNDS
 	 */
 	
-	public abstract class GameRound<Choice> {
+	abstract class GameRound<Choice> {
 		String roundName, beginHumanChoiceText, longHumanChoiceText;
 		
 		public GameRound(String name, String beginHuman, String longHuman){
@@ -268,7 +280,7 @@ public class TileDemoGame implements ApplicationListener {
 		}
 		
 		void initHumanChoice(int player){
-			tileQueue.selectionSet(0, 0, 1, players + 1);
+			tileQueue.beginSelection();
 		}
 		
 		void initHumanLongChoice(int player){
@@ -294,17 +306,15 @@ public class TileDemoGame implements ApplicationListener {
 		int choice;
 		
 		public TilePlaceRound(){
-			super("Tile placement round", "Pick a column. >3s for speed bonus!", "");
+			super("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.");
 		}
 		
 		void initRound(){
-			lastRow++;
-			tileBoard.resizeBoard(players + 1, lastRow + 1);
-			fillLastRow(Tile.Empty);
+			addRow();
 		}
 		
 		void initCPUChoice(int player){
-			choice = cpuChooseRandomColumn(player);
+			choice = cpuChooseRandomColumn(player, true);
 			tileBoard.highlightSet(0, choice, 1, 1);
 		}
 		
@@ -314,11 +324,11 @@ public class TileDemoGame implements ApplicationListener {
 		}
 		
 		void initHumanChoice(int player){
-			tileBoard.selectionSet(0, 0, 1, players + 1);
+			tileBoard.beginSelection();
 		}
 		
 		void initHumanLongChoice(int player){
-			tileBoard.setSelection(0, defaultColumn());
+			tileBoard.setSelection(0, defaultColumn(true));
 		}
 		
 		Integer completeHumanChoice(int player){
@@ -366,7 +376,7 @@ public class TileDemoGame implements ApplicationListener {
 		}
 		
 		void initHumanChoice(int player){
-			roleChoose.selectionSet(0, 0, Integer.MAX_VALUE, Integer.MAX_VALUE);
+			roleChoose.beginSelection();
 		}
 		
 		void initHumanLongChoice(int player){
@@ -385,8 +395,9 @@ public class TileDemoGame implements ApplicationListener {
 		}
 		
 		void roundOver(){
+			resetRoleChoices();
 			roleChooseLayer.setVisible(false);
-			new TileChoiceRound().beginRound();
+			new PlaceWorkerRound().beginRound();
 		}
 		
 		void applyPlayerChoice(int player, Pair role){
@@ -395,71 +406,119 @@ public class TileDemoGame implements ApplicationListener {
 			roles[1][role.col] = Role.Empty; 
 		}
 	}
+	
+	class PlaceWorkerRound extends GameRound<Integer> {
+		public PlaceWorkerRound(){
+			super("Place workers round", "Short blach blach", "Long blah blah.");
+		}
+		
+		void initRound(){
+			placingWorkers = true;
+		}
+		
+		void roundOver(){
+			placingWorkers = false;
+			new TileChoiceRound().beginRound();
+		}
+		
+		int choice;
+
+		void applyPlayerChoice(int player, Integer column){
+			workers[player][lastRow][column] = true;
+		}
+
+		// CPU Choice
+		void initCPUChoice(int player){
+			choice = cpuChooseRandomColumn(player, false);
+			tileBoard.highlightSet(0, choice, 1, 1);
+		}
+		
+		Integer completeCPUChoice(int player){
+			tileBoard.clearHighlights();
+			return choice;
+		}
+		
+		// Human choice
+		void initHumanChoice(int player){
+			tileBoard.beginSelection();
+		}
+		
+		void initHumanLongChoice(int player){
+			int col = defaultColumn(false);
+			tileBoard.setSelection(lastRow, col);
+		}
+		
+		Integer completeHumanChoice(int player){
+			int col = tileBoard.selectedCol();
+			tileBoard.clearSelecting();
+			return col;
+		}
+		
+		boolean humanMadeChoice(int player){
+			return tileBoard.hasSelection();
+		}
+	}
 
 	/*
 	 *  CPU CHOICE AND PLAYER DEFAULTS
 	 */
 
 	// Return all indices in the first N that either DO (emptyAvailable) or DONT (!emptyAvailable) match the empty value.
-	<T> List<Integer> availableIndices(List<T> ts, int n, T empty, boolean emptyAvailable) {
+	<T extends Board.TileSet> List<Integer> availableIndices(List<T> ts, int n, boolean emptyAvailable) {
 		List<Integer> indices = new ArrayList<Integer>();
 		for(int i = 0; i < n; i++){
-			if(emptyAvailable && ts.get(i) == empty){
+			if(emptyAvailable && ts.get(i).IsEmpty()){
 				indices.add(i);
 			}
-			else if(!emptyAvailable && ts.get(i) != empty){
+			else if(!emptyAvailable && !ts.get(i).IsEmpty()){
 				indices.add(i);
 			}
 		}
 		return indices;
 	}
+	
+	<T> T random(List<T> ts){
+		if(ts.size() == 0)
+			throw new Error("Empty list in random");
+		
+		return ts.get(random.nextInt(ts.size()));
+	}
+	
+	<T> T first(List<T> ts){
+		if(ts.size() == 0)
+			throw new Error("Empty list in first");
+		return ts.get(0);
+	}
 
 	// Give an index into the queue of tile choice for CPU player 
 	// Currently random.
 	int randomAvailableTile(int player){
-		List<Integer> availableTiles = this.availableIndices(queue, players + 1, Tile.Empty, false);
-
-		return availableTiles.get(random.nextInt(availableTiles.size()));
+		return random(availableIndices(queue, players + 1, false));
 	}
 	
-	public int defaultTileIndex(){
-		List<Integer> availableTiles = this.availableIndices(queue, players + 1, Tile.Empty, false);
-
-		if(availableTiles.size() > 0)
-			return availableTiles.get(0);
-		
-		throw new Error("No default tile");
+	int defaultTileIndex(){
+		return first(availableIndices(queue, players + 1, false));
 	}
 	
-	public int cpuChooseRandomColumn(int player){
-		List<Integer> availableColumns = this.availableIndices(Arrays.asList(tiles[lastRow]), players + 1, Tile.Empty, true);
-		
-		return availableColumns.get(random.nextInt(availableColumns.size()));
+	int cpuChooseRandomColumn(int player, boolean selectEmpty){
+		return random(availableIndices(Arrays.asList(tiles[lastRow]), players + 1, selectEmpty));
+	}
+	
+	int defaultColumn(boolean emptyAvailable){
+		return first(this.availableIndices(Arrays.asList(tiles[lastRow]), players + 1, emptyAvailable));
 	}
 	
 	Pair cpuChooseRandomRole(int player){
-		List<Integer> availableRoles = this.availableIndices(Arrays.asList(roles[0]), 5, Role.Empty, false);
-		
-		return new Pair(random.nextBoolean() ? 0 : 1, availableRoles.get(random.nextInt(availableRoles.size())));
+		return new Pair(random.nextBoolean() ? 0 : 1, // Randomly choose top or bottom of role
+				random(availableIndices(Arrays.asList(roles[0]), 5, false))); // Randomly choose available role
 	}
 	
 	Pair defaultRole(int player){
-		List<Integer> availableRoles = this.availableIndices(Arrays.asList(roles[0]), 5, Role.Empty, false);
-		
-		return new Pair(1, availableRoles.get(0));
+		return new Pair(1, availableIndices(Arrays.asList(roles[0]), 5, false).get(0));
 	}
 
-	public int defaultColumn(){
-		List<Integer> availableColumns = this.availableIndices(Arrays.asList(tiles[lastRow]), players + 1, Tile.Empty, true);
-
-		if(availableColumns.size() > 0)
-			return availableColumns.get(0);
-		
-		throw new Error("No default column available");
-	}
-	
 	/*
-	 *  HANDLE TILE BOARD, QUEUE, ROLES 
+	 *  HANDLE TILE BOARD, QUEUE, ROLES, WORKERS 
 	 */
 	
 	void setAllRoles(){
@@ -469,15 +528,21 @@ public class TileDemoGame implements ApplicationListener {
 		};
 	}
 
+	void addRow(){
+		lastRow++;
+		tileBoard.resizeBoard(players + 1, lastRow + 1);
+		fillLastRow(Tile.Empty);
+	}
+	
 	// Fill last row of tiles with just t (usually Tile.Empty)
-	public void fillLastRow(Tile t){
+	void fillLastRow(Tile t){
 		for(int i = 0; i < tiles[lastRow].length; i++){
 			tiles[lastRow][i] = t;
 		}
 	}
 	
 	// Add 50 random tiles to the queue
-	public void fillTileQueue(){
+	void fillTileQueue(){
 		java.util.List<Tile> tileValues = Arrays.asList(Tile.values());
 		Random r = new Random();
 			  
@@ -490,7 +555,7 @@ public class TileDemoGame implements ApplicationListener {
 	
 	// Move blanks off the front of the queue
 	// Error if tile queue ends up short.
-	public void shiftTileQueue(){
+	void shiftTileQueue(){
 		if(queue.size() < 2 * players + 1){
 			throw new Error("Ran out of tiles!");
 		}
@@ -505,6 +570,12 @@ public class TileDemoGame implements ApplicationListener {
 		}
 		
 		tileQueue.resizeBoard(queue.size(), 1);
+	}
+	
+	void resetRoleChoices(){
+		for(int i = 0; i < players; i++){
+			playerRoleChoice[i] = Role.Empty;
+		}
 	}
 	
 	/*
@@ -523,16 +594,30 @@ public class TileDemoGame implements ApplicationListener {
 		return sp;
 	}
 
-	public Actor makeTileBoard(){
-		fillLastRow(Tile.Manor);
-		
-		tileBoard = new Board<Tile>(players + 1,1,200f,"tileBoard"){
+	Actor makeTileBoard(){
+		tileBoard = new Board<Tile,Worker>(players + 1,1,200f,50f,"tileBoard"){
 			Tile tileAt(int row, int col){
 				return tiles[lastRow - row][col];
 			}
 			
 			boolean tileSelectable(int row, int col){
-				return tiles[lastRow - row][col] == Tile.Empty;
+				return row == 0 &&
+						(placingWorkers != /* read XOR */ (tiles[lastRow - row][col] == Tile.Empty));
+			}
+			
+			// This... is not really a good thing to do every frame.
+			// for every tile.
+			List<Worker> piecesAt(int row, int col){
+				ArrayList<Worker> tileWorkers = new ArrayList<Worker>();
+				
+				for(int i = 0; i < players; i++){
+					if(workers[i][lastRow - row][col])
+					{
+						tileWorkers.add(playerColors[i]);
+					}
+				}
+				
+				return tileWorkers;
 			}
 		};
 		
@@ -548,21 +633,21 @@ public class TileDemoGame implements ApplicationListener {
 		return p;
 	}
 	
-	public Actor makeAnnouncementLayer(){
+	Actor makeAnnouncementLayer(){
 		announcement = new Label("Announcement", new Label.LabelStyle(new BitmapFont(), Color.BLACK));
 		announcement.setAlignment(Align.center);
 		
 		return C(announcement).padTop(100f).top();
 	}
 	
-	public Actor makeTileQueueLayer(){
-		tileQueue = new Board<Tile>(50,1,100f,"tileQueue"){
+	Actor makeTileQueueLayer(){
+		tileQueue = new Board<Tile,Tile>(50,1,100f,0f,"tileQueue"){
 			Tile tileAt(int row, int col){
 				return queue.get(col);
 			}
 			
 			boolean tileSelectable(int row, int col){
-				return queue.get(col) != Tile.Empty;
+				return col < players + 1 && queue.get(col) != Tile.Empty;
 			}
 		};
 		
@@ -572,36 +657,30 @@ public class TileDemoGame implements ApplicationListener {
 		return C(pane).padTop(30f).top().fill(1f,0f);
 	}
 
-	public Actor makeTileChoiceLayer(){
-		for(int i = 0; i < players; i++){
-			playerTileChoice[i] = Tile.Empty;
-		}
-		
-		tileChoice = new Board<Tile>(players,1,80f,"tileChoice"){
+	Actor makeTileChoiceLayer(){
+		tileChoice = new Board<Tile,Tile>(players,1,80f,0f,"tileChoice"){
 			Tile tileAt(int row, int col){
 				return playerTileChoice[col];
 			}	
 		};
 		
+		// THIS IS DUMB.
 		return C(tileChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
 	}
 
-	public Actor makeRoleChoiceLayer(){
-		for(int i = 0; i < players; i++){
-			playerRoleChoice[i] = Role.Empty;
-		}
-		
-		roleChoice = new Board<Role>(players,1,80f,"roleChoice"){
+	Actor makeRoleChoiceLayer(){
+		roleChoice = new Board<Role,Role>(players,1,80f,0f,"roleChoice"){
 			Role tileAt(int row, int col){
 				return playerRoleChoice[col];
 			}	
 		};
 		
+		// THIS IS DUMB.
 		return C(roleChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
 	}
 
-	public Actor makeChooseRoleLayer(){
-		roleChoose = new Board<Role>(5,2,150f,"chooseRole"){
+	Actor makeChooseRoleLayer(){
+		roleChoose = new Board<Role,Role>(5,2,150f,0f,"chooseRole"){
 			Role tileAt(int row, int col){
 				return roles[1 - row][col];	
 			}

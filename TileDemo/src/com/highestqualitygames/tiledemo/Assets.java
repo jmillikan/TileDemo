@@ -8,13 +8,31 @@ import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 public class Assets {
 	public static TextureRegion manor, forest, field, pasture, village;
 	public static TextureRegion r1top, r1bottom, r2top, r2bottom, r3top, r3bottom, r4top, r4bottom, r5top, r5bottom;
+	public static TextureRegion white, black, purple, teal, orange;
 	public static Sprite highlight, selectable;
 	public static TextureRegion bg; 
 	
 	// Assets.java  isn't a great place for these, but it's okay.
-	
-	// NOTE: Tile and Role are (arguable) doing double duty as logical and UI values.
+	// NOTE: These are (arguable) doing double duty as logical and UI values.
 	// This is not perfect but is working.
+	
+	public enum Worker implements Board.TileSet {
+		Purple, Teal, Orange, White, Black, Empty;
+		
+		public boolean IsEmpty(){ return this == Empty; };
+		
+		public TextureRegion tr(){
+			switch(this){
+			case Purple: return purple;
+			case Teal: return teal;
+			case Orange: return orange;
+			case Black: return black;
+			case White: return white;
+			default: throw new Error("Cannot render empty worker");
+			}
+		}
+	}
+	
 	public enum Tile implements Board.TileSet {
 		Empty, Manor, Forest, Field, Pasture, Village;
 		
@@ -80,5 +98,11 @@ public class Assets {
 		r4bottom = atlas.findRegion("roles-4-bottom");
 		r5top = atlas.findRegion("roles-5-top");
 		r5bottom = atlas.findRegion("roles-5-bottom");
+		
+		black = atlas.findRegion("black");
+		white = atlas.findRegion("white");
+		teal = atlas.findRegion("teal");
+		orange = atlas.findRegion("orange");
+		purple = atlas.findRegion("purple");
 	}
 }
