@@ -51,12 +51,20 @@ public class GameScreen implements Screen {
 			worker = w; name = n; type = p; playerDesignation = pd;
 		}
 	}
+	
+	public static class PlayerState {
+		public int score;
+		public Tile currentTile;
+		public Role currentRole;
+	}
 		
 	// PROPERTIES - GAME LOGIC - NON-MUTATING (after constructor)
 	int numPlayers;
 	List<Player> players;
-	
+
 	// PROPERTIES - GAME LOGIC - MUTATING
+	List<PlayerState> playerStates;
+	
 	List<Tile> queue = new ArrayList<Tile>();
 	Tile[][] tiles;
 	int lastRow = 0;
@@ -65,16 +73,12 @@ public class GameScreen implements Screen {
 	boolean placingWorkers = false;
 
 	Role[][] roles;
-	/* Strictly an index into roles, not the Board coordinates of roles */
+	/* Index into roles (NOT Board coordinates) */
 	class Pair {
 		public int row, col;
 		public Pair(int r, int c){ row = r; col = c; }
 	}
 
-	// Ideally these would be passed around the phases instead of being here
-	// (And possibly inconsistent)
-	Role[] playerRoleChoice;
-	Tile[] playerTileChoice;
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
 
 	public GameScreen(List<Player> playerList) {
@@ -82,19 +86,23 @@ public class GameScreen implements Screen {
 		
 		numPlayers = playerList.size();
 		players = playerList;
+		playerStates = new ArrayList<PlayerState>();
+		for(Player p : players){
+			PlayerState ps = new PlayerState();
+			ps.score = 0;
+			ps.currentTile = Tile.Empty;
+			ps.currentRole = Role.Empty;
+			playerStates.add(ps);
+		}
 		
 		tiles = new Tile[100][numPlayers + 1];
 		workers = new boolean[numPlayers + 1][100][numPlayers + 1];
-		playerRoleChoice = new Role[numPlayers];
-		playerTileChoice = new Tile[numPlayers];
 		
 		stage = new Stage();
 		Gdx.input.setInputProcessor(stage);
 		
 		resetRoleChoices();
-		for(int i = 0; i < numPlayers; i++){
-			playerTileChoice[i] = Tile.Empty;
-		}
+		
 		fillLastRow(Tile.Manor);
 		fillTileQueue();
 		
@@ -104,11 +112,10 @@ public class GameScreen implements Screen {
 		
 		Stack st = new Stack();
 		st.add(makeTileBoard());
-		st.add(makeTileChoiceLayer());
-		st.add(makeRoleChoiceLayer());
 		st.add(makeTileQueueLayer());
 		st.add(roleChooseLayer);
 		st.add(makeAnnouncementLayer());
+		st.add(new Players(players, playerStates));
 		
 		roleChooseLayer.setVisible(false);
 		
@@ -292,7 +299,7 @@ public class GameScreen implements Screen {
 		}
 		
 		void applyPlayerChoice(int player, Integer queueIndex){
-			playerTileChoice[player] = queue.get(queueIndex);
+			playerStates.get(player).currentTile = queue.get(queueIndex);
 			queue.set(queueIndex, Tile.Empty);
 		}
 		
@@ -368,8 +375,8 @@ public class GameScreen implements Screen {
 		}
 		
 		void applyPlayerChoice(int player, Integer column){
-			Tile t = playerTileChoice[player];
-			playerTileChoice[player] = Tile.Empty;
+			Tile t = playerStates.get(player).currentTile;
+			playerStates.get(player).currentTile = Tile.Empty;
 			
 			tiles[lastRow][column] = t;
 		}
@@ -423,7 +430,7 @@ public class GameScreen implements Screen {
 		}
 		
 		void applyPlayerChoice(int player, Pair role){
-			playerRoleChoice[player] = roles[role.row][role.col];
+			playerStates.get(player).currentRole = roles[role.row][role.col];
 			roles[0][role.col] = Role.Empty;
 			roles[1][role.col] = Role.Empty; 
 		}
@@ -597,7 +604,7 @@ public class GameScreen implements Screen {
 	
 	void resetRoleChoices(){
 		for(int i = 0; i < numPlayers; i++){
-			playerRoleChoice[i] = Role.Empty;
+			playerStates.get(i).currentRole = Role.Empty;
 		}
 	}
 	
@@ -678,28 +685,6 @@ public class GameScreen implements Screen {
 		pane.setupOverscroll(0f, 0f, 0f);
 		
 		return C(pane).padTop(30f).top().fill(1f,0f);
-	}
-
-	Actor makeTileChoiceLayer(){
-		tileChoice = new Board<Tile,Tile>(numPlayers,1,80f,0f,"tileChoice"){
-			Tile tileAt(int row, int col){
-				return playerTileChoice[col];
-			}	
-		};
-		
-		// THIS IS DUMB.
-		return C(tileChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
-	}
-
-	Actor makeRoleChoiceLayer(){
-		roleChoice = new Board<Role,Role>(numPlayers,1,80f,0f,"roleChoice"){
-			Role tileAt(int row, int col){
-				return playerRoleChoice[col];
-			}	
-		};
-		
-		// THIS IS DUMB.
-		return C(roleChoice).padBottom(10f).bottom().padRight(stage.getWidth() - tileChoice.getPrefWidth());
 	}
 
 	Actor makeChooseRoleLayer(){

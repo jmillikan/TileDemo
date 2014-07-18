@@ -1,6 +1,7 @@
 package com.highestqualitygames.tiledemo;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.g2d.TextureAtlas;
@@ -9,8 +10,11 @@ public class Assets {
 	public static TextureRegion manor, forest, field, pasture, village;
 	public static TextureRegion r1top, r1bottom, r2top, r2bottom, r3top, r3bottom, r4top, r4bottom, r5top, r5bottom;
 	public static TextureRegion white, black, purple, teal, orange;
+	public static TextureRegion playerBG;
 	public static Sprite highlight, selectable;
 	public static TextureRegion bg; 
+	
+	public static BitmapFont font;
 	
 	// Assets.java  isn't a great place for these, but it's okay.
 	// NOTE: These are (arguable) doing double duty as logical and UI values.
@@ -104,5 +108,9 @@ public class Assets {
 		teal = atlas.findRegion("teal");
 		orange = atlas.findRegion("orange");
 		purple = atlas.findRegion("purple");
+		
+		playerBG = atlas.findRegion("playerBG");
+		
+		font = new BitmapFont();
 	}
 }
