@@ -1,5 +1,8 @@
 package com.highestqualitygames.tiledemo;
 
+import java.util.Arrays;
+import java.util.List;
+
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.Sprite;
@@ -73,6 +76,41 @@ public class Assets {
 			case ForestTop: return r5top;
 			case ForestBottom: return r5bottom;
 			default: throw new Error("Bad tile request");
+			}
+		}
+		
+		public int workers(){
+			switch(this){
+			case FieldBottom:
+			case PastureBottom:
+			case VillageBottom:
+			case ManorBottom:
+			case ForestBottom:
+				return 1;
+			default: return 0;
+			}
+		}
+		
+		// How many points gained for a worker on which type of tile?
+		public static class PointYield {
+			Tile tile;
+			int points;
+		}
+		
+		PointYield P(Tile t, int p){
+			PointYield py = new PointYield();
+			py.tile = t; py.points = p;
+			return py;
+		}
+		
+		public List<PointYield> points(){
+			switch(this){
+			case FieldTop: return Arrays.asList(P(Tile.Field, 3), P(Tile.Pasture, 2));
+			case PastureTop: return Arrays.asList(P(Tile.Pasture, 3), P(Tile.Village, 2));
+			case VillageTop: return Arrays.asList(P(Tile.Village, 3), P(Tile.Field, 2));
+			case ManorTop: return Arrays.asList(P(Tile.Manor, 4), P(Tile.Forest, 1));
+			case ForestTop: return Arrays.asList(P(Tile.Forest, 4), P(Tile.Manor, 1));
+			default: return Arrays.asList();
 			}
 		}
 	}

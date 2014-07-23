@@ -20,6 +20,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane.ScrollPaneStyle;
 import com.badlogic.gdx.scenes.scene2d.utils.*;
 
+import com.highestqualitygames.tiledemo.Assets.Role.PointYield;
 import com.highestqualitygames.tiledemo.Assets.*;
 
 public class GameScreen implements Screen {
@@ -41,22 +42,25 @@ public class GameScreen implements Screen {
 	Board<Role,Role> roleChoose, roleChoice;
 	Label announcement;
 	
+	// Non-changing player information
 	public static class Player {
 		public Worker worker;
 		public String name;
 		public PlayerType type;
-		public String playerDesignation;
 		
-		public Player(Worker w, String n, PlayerType p, String pd){
-			worker = w; name = n; type = p; playerDesignation = pd;
+		public Player(Worker w, String n, PlayerType p){
+			worker = w; name = n; type = p;
 		}
 	}
 	
 	public static class PlayerState {
-		public int score;
-		public Tile currentTile;
-		public Role currentRole;
+		public int score = 0;
+		public Tile currentTile = Tile.Empty;
+		public Role currentRole = Role.Empty;
+		public int numWorkers = 0;
 	}
+	
+	int initQueueSize = 45;
 		
 	// PROPERTIES - GAME LOGIC - NON-MUTATING (after constructor)
 	int numPlayers;
@@ -73,10 +77,18 @@ public class GameScreen implements Screen {
 	boolean placingWorkers = false;
 
 	Role[][] roles;
-	/* Index into roles (NOT Board coordinates) */
+	/* Index into arrays (NOT Board coordinates) */
 	class Pair {
 		public int row, col;
 		public Pair(int r, int c){ row = r; col = c; }
+		public boolean equals(Object o){
+			if(!(o instanceof Pair)){
+				return false;
+			}
+			
+			Pair other = (Pair) o;
+			return other.row == row && other.col == col;
+		}
 	}
 
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
@@ -87,12 +99,8 @@ public class GameScreen implements Screen {
 		numPlayers = playerList.size();
 		players = playerList;
 		playerStates = new ArrayList<PlayerState>();
-		for(Player p : players){
-			PlayerState ps = new PlayerState();
-			ps.score = 0;
-			ps.currentTile = Tile.Empty;
-			ps.currentRole = Role.Empty;
-			playerStates.add(ps);
+		for(int i = 0; i < numPlayers; i++){
+			playerStates.add(new PlayerState());
 		}
 		
 		tiles = new Tile[100][numPlayers + 1];
@@ -100,8 +108,6 @@ public class GameScreen implements Screen {
 		
 		stage = new Stage();
 		Gdx.input.setInputProcessor(stage);
-		
-		resetRoleChoices();
 		
 		fillLastRow(Tile.Manor);
 		fillTileQueue();
@@ -122,13 +128,18 @@ public class GameScreen implements Screen {
 		st.setFillParent(true);
 
 		stage.addActor(st);
-
-		new TileChoicePhase().beginRound();
+		
+		beginRound();
+	}
+	
+	void beginRound(){
+		// TODO: Have an explicit phase ordering somewhere...
+		new TileChoicePhase().beginPhase();
 	}
 
 	// Used in place of delay to speed/slow actions for smoke testing
 	Action ui_delay(float f){
-		return delay(f / 5);
+		return delay(f / 10);
 	}
 	
 	public void dispose() {
@@ -187,7 +198,7 @@ public class GameScreen implements Screen {
 		
 		abstract void roundOver();
 
-		void beginRound(){
+		void beginPhase(){
 			announcement.setText(roundName);
 			
 			initRound();
@@ -305,7 +316,7 @@ public class GameScreen implements Screen {
 		
 		void roundOver(){
 			shiftTileQueue();
-			new TilePlacePhase().beginRound();
+			new TilePlacePhase().beginPhase();
 		}
 		
 		void initHumanChoice(int player){
@@ -371,7 +382,7 @@ public class GameScreen implements Screen {
 		}
 		
 		void roundOver(){
-			new RoleChoicePhase().beginRound();
+			new RoleChoicePhase().beginPhase();
 		}
 		
 		void applyPlayerChoice(int player, Integer column){
@@ -424,16 +435,85 @@ public class GameScreen implements Screen {
 		}
 		
 		void roundOver(){
-			resetRoleChoices();
 			roleChooseLayer.setVisible(false);
-			new PlaceWorkerPhase().beginRound();
+			new PlaceWorkerPhase().beginPhase();
 		}
 		
 		void applyPlayerChoice(int player, Pair role){
-			playerStates.get(player).currentRole = roles[role.row][role.col];
+			Role r = roles[role.row][role.col];
+			//playerStates.get(player).currentRole = roles[role.row][role.col];
+			playerStates.get(player).numWorkers += playerStates.get(player).currentRole.workers();
+			
+			for(PointYield py : r.points()){
+				playerStates.get(player).score += py.points * countPlayerRegions(player, py.tile); 
+			}
+			
 			roles[0][role.col] = Role.Empty;
 			roles[1][role.col] = Role.Empty; 
 		}
+	}
+	
+	// Expand from i,j outward on only Tile t, adding to seen list.
+	// If player is encountered, return true after crawl
+	boolean crawlAndCheck(List<Pair> seen, int i, int j, Tile t, int player){
+		boolean foundPlayerWorker = false;
+		
+		// These will not be large... TODO: Sets or whatever.
+		List<Pair> visited = new ArrayList<Pair>();
+		List<Pair> frontier = new ArrayList<Pair>();
+		
+		frontier.add(new Pair(i,j));
+		
+		while(frontier.size() > 0){
+			Pair p = frontier.get(0);
+			frontier.remove(p);
+			if(!visited.contains(p)) visited.add(p);
+			
+			// Add to frontier in four directions...
+			expandFrontier(frontier, visited, p, i + 1, j, t);
+			expandFrontier(frontier, visited, p, i - 1, j, t);
+			expandFrontier(frontier, visited, p, i, j + 1, t);
+			expandFrontier(frontier, visited, p, i, j - 1, t);
+			
+			if(workers[player][p.row][p.col])
+				foundPlayerWorker = true;
+		}
+		
+		for(Pair p : visited){
+			seen.add(p);
+		}
+		
+		return foundPlayerWorker;
+	}
+	
+	void expandFrontier(List<Pair> frontier, List<Pair> visited, Pair center, int i, int j, Tile t){
+		Pair p = new Pair(center.row + i, center.col + j);
+		
+		if(p.row >= 0 && p.col >= 0 && tiles.length > p.row && tiles[p.row].length > p.col && 
+				tiles[p.row][p.col] == t && !visited.contains(p)){
+			frontier.add(p);
+		}
+	}
+	
+	// 
+	int countPlayerRegions(int player, Tile t){
+		// Starting at 0,0, when we encounter this tile, if it has not been seen, 
+		// spread out to all unseen tiles, adding all to alreadySeen. If any workers
+		// for this player is in this region, add ONLY one to count.
+		List<Pair> alreadySeen = new ArrayList<Pair>();
+		int regions = 0;
+		
+		for(int i = 0; i < numPlayers + 1; i++){
+			for(int j = 0; j < tiles[i].length; j++){
+				if(tiles[i][j] == t && 
+						!alreadySeen.contains(new Pair(i,j)) && 
+						crawlAndCheck(alreadySeen,i,j,t,player)){
+					regions += 1;
+				}
+			}
+		}
+		
+		return regions;
 	}
 	
 	class PlaceWorkerPhase extends GamePhase<Integer> {
@@ -447,7 +527,13 @@ public class GameScreen implements Screen {
 		
 		void roundOver(){
 			placingWorkers = false;
-			new TileChoicePhase().beginRound();
+			
+			if(queue.size() > numPlayers + 1){
+				new TileChoicePhase().beginPhase();
+			}
+			else {
+				announcement.setText("The Game Is Over");
+			}
 		}
 		
 		int choice;
@@ -553,7 +639,7 @@ public class GameScreen implements Screen {
 	
 	void setAllRoles(){
 		roles = new Role[][] { 
-				{ Role.FieldTop, Role.PastureTop, Role.VillageTop, Role.ManorTop, Role.ManorTop, Role.ForestBottom },
+				{ Role.FieldTop, Role.PastureTop, Role.VillageTop, Role.ManorTop, Role.ForestTop },
 				{ Role.FieldBottom, Role.PastureBottom, Role.VillageBottom, Role.ManorBottom, Role.ForestBottom }
 		};
 	}
@@ -576,7 +662,7 @@ public class GameScreen implements Screen {
 		java.util.List<Tile> tileValues = Arrays.asList(Tile.values());
 		Random r = new Random();
 			  
-		for(int i = 0; i < 50; i++){
+		for(int i = 0; i < initQueueSize; i++){
 			// + 1 dodges the Empty tile
 			// Not sure if this is supposed to work
 			queue.add(tileValues.get(r.nextInt(tileValues.size() - 1) + 1));
@@ -586,10 +672,6 @@ public class GameScreen implements Screen {
 	// Move blanks off the front of the queue
 	// Error if tile queue ends up short.
 	void shiftTileQueue(){
-		if(queue.size() < 2 * numPlayers + 1){
-			throw new Error("Ran out of tiles!");
-		}
-
 		for(int checked = 0, i = 0; checked < numPlayers + 1; checked++){
 			if(queue.get(i) == Tile.Empty){
 				queue.remove(i);
@@ -600,12 +682,6 @@ public class GameScreen implements Screen {
 		}
 		
 		tileQueue.resizeBoard(queue.size(), 1);
-	}
-	
-	void resetRoleChoices(){
-		for(int i = 0; i < numPlayers; i++){
-			playerStates.get(i).currentRole = Role.Empty;
-		}
 	}
 	
 	/*
@@ -632,11 +708,11 @@ public class GameScreen implements Screen {
 			
 			boolean tileSelectable(int row, int col){
 				return row == 0 &&
-						(placingWorkers != /* read XOR */ (tiles[lastRow - row][col] == Tile.Empty));
+						(placingWorkers != (tiles[lastRow - row][col] == Tile.Empty));
 			}
 			
 			// This... is not really a good thing to do every frame.
-			// for every tile.
+			// for every tile. Need an array/filter backed List class...
 			List<Worker> piecesAt(int row, int col){
 				ArrayList<Worker> tileWorkers = new ArrayList<Worker>();
 				
@@ -651,7 +727,7 @@ public class GameScreen implements Screen {
 			}
 		};
 		
-		ScrollPane p = SP(tileBoard);
+		ScrollPane p = SP(C(tileBoard).pad(100f).center());
 		ScrollPaneStyle s = new ScrollPaneStyle(new TiledDrawable(Assets.bg), null, null, null, null);
 		p.setStyle(s);
 		
@@ -671,7 +747,7 @@ public class GameScreen implements Screen {
 	}
 	
 	Actor makeTileQueueLayer(){
-		tileQueue = new Board<Tile,Tile>(50,1,100f,0f,"tileQueue"){
+		tileQueue = new Board<Tile,Tile>(initQueueSize,1,100f,0f,"tileQueue"){
 			Tile tileAt(int row, int col){
 				return queue.get(col);
 			}

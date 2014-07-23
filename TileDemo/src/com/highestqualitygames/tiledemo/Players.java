@@ -62,19 +62,20 @@ public class Players extends Widget {
 			
 			batch.draw(Assets.playerBG, x, y, getOriginX(), getOriginY(), 300f, 200f, scale, scale, 0f);
 			
-			Assets.font.draw(batch, players.get(i).playerDesignation, x + 20f * scale, y + 50f * scale);
 			Assets.font.draw(batch, players.get(i).name, x + 40f * scale, y + 50f * scale);
 			
 			batch.draw(players.get(i).worker.tr(), x + 10f * scale, y + 60f * scale, getOriginX(), getOriginY(), 100f, 100f, scale, scale, 0f);
 			
-			Assets.font.draw(batch, String.format("%d", playerStates.get(i).score), x + 110f * scale, y + 100f * scale);
-			
+			Assets.font.draw(batch, String.format("x %d", playerStates.get(i).numWorkers), x + 110f * scale, y + 100f * scale);
+
+			Assets.font.draw(batch, String.format("%d", playerStates.get(i).score), x + 110f * scale, y + 50f * scale);
+
 			if(!ps.currentTile.IsEmpty()){
-				batch.draw(ps.currentTile.tr(), x + 140f * scale, y + 50f * scale, getOriginX(), getOriginY(), 100f, 100f, scale, scale, 0f);
+				batch.draw(ps.currentTile.tr(), x + 200f * scale, y + 50f * scale, getOriginX(), getOriginY(), 100f, 100f, scale, scale, 0f);
 			}
 
 			if(!ps.currentRole.IsEmpty()){
-				batch.draw(ps.currentRole.tr(), x + 140f * scale, y + 50f * scale, getOriginX(), getOriginY(), 100f, 100f, scale, scale, 0f);
+				batch.draw(ps.currentRole.tr(), x + 200f * scale, y + 50f * scale, getOriginX(), getOriginY(), 100f, 100f, scale, scale, 0f);
 			}
 			
 			y += scale * prefPlayerHeight;
