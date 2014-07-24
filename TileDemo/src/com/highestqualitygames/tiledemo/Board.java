@@ -49,25 +49,30 @@ abstract class Board<TileT extends Board.TileSet, PieceT extends Board.TileSet> 
 	// 
 	String name;
 	
-	// Is there currently a highlighted set?
-	protected boolean highlight = false;
-	protected int highlightRow, highlightCol, highlightRows, highlightCols;
+	// Board mediates between this and the internal selections mechanisms in a non-trivial way
+	// ... read it
 	
-	// Is there currently a selectable set of tiles?
-	protected boolean selecting = false;
+	public static enum TileDecoration { None, Highlight, Select }
 	
-	// Is there currently a selected tile?
-	protected boolean selection = false;
-	protected int selectedRow;
-	protected int selectedCol;
+	public Selection selection;
+	
+	public static abstract class Selection {
+		boolean tileSelectable(int row, int column){
+			return true;
+		}
+		
+		void selected(int row, int column){
+			
+		}
+		
+		TileDecoration tileDecoration(int row, int column){
+			return TileDecoration.None;
+		}
+	}
 	
 	abstract TileT tileAt(int row, int column);
 	List<PieceT> piecesAt(int row, int column){return new ArrayList<PieceT>();}
 
-	boolean tileSelectable(int row, int column){
-		return true;
-	}
-	
 	public Board(int tilesWide, int tilesHigh, float tileSize, float pieceSize, final String n){
 		//super();
 		this.tilesWide = tilesWide;
@@ -87,61 +92,13 @@ abstract class Board<TileT extends Board.TileSet, PieceT extends Board.TileSet> 
 	}
 	
 	void click(float x, float y){
-		if(selecting){
+		if(selection != null){
 			int col = (int) java.lang.Math.floor(x / tileSize);
 			int row = (int) java.lang.Math.floor(y / tileSize);
 			
-			if(tileSelectable(row, col)){
-				selectedCol = col;
-				selectedRow = row;
-				selection = true;
-			}
+			if(selection.tileSelectable(row, col))
+				selection.selected(row, col);
 		}
-	}
-
-	void beginSelection(){
-		selecting = true;
-		selection = false;
-	}
-	
-	// This makes selectionSet seem like a very bad method name.
-	public void setSelection(int row, int col){
-		selection = true;
-		selectedRow = row; selectedCol = col;
-	}
-	
-	// Clears both any selectable set as well as current selection
-	public void clearSelecting(){
-		selecting = false;
-		selection = false;
-	}
-	
-	public void clearSelection(){
-		selection = false;
-	}
-	
-	public boolean hasSelection(){
-		return selection;
-	}
-	
-	// Currnetly selected row or -1
-	public int selectedRow(){
-		return selection ? selectedRow : -1;
-	}
-	
-	public int selectedCol(){
-		return selection ? selectedCol : -1;
-	}
-	
-	public void highlightSet(int row, int col, int rows, int cols){
-		highlight = true;
-		highlightRow = row; highlightCol = col;
-		highlightRows = rows; highlightCols = cols;
-	}
-	
-	public void clearHighlights(){
-		highlight = false;
-		selection = false;
 	}
 	
 	public void resizeBoard(int tilesWide, int tilesHigh){
@@ -158,16 +115,7 @@ abstract class Board<TileT extends Board.TileSet, PieceT extends Board.TileSet> 
 	public float getPrefWidth(){
 		return tileSize * tilesWide * getScaleX();
 	}
-	
-	boolean highlightCell(int i, int j){
-		return highlight && i >= highlightRow && i < highlightRow + highlightRows
-				&& j >= highlightCol && j < highlightCol + highlightCols;
-	}
-	
-	boolean selectedCell(int i, int j){
-		return selection && i == selectedRow && j == selectedCol;
-	}
-	
+		
 	void drawTile(TextureRegion tr, Batch batch, float x, float y, float scale){
 		batch.draw(tr, x, y, getOriginX(), getOriginY(), 200f, 200f, scale, scale, 0f);
 	}
@@ -189,18 +137,21 @@ abstract class Board<TileT extends Board.TileSet, PieceT extends Board.TileSet> 
 					
 					drawTile(tileAt(i, j).tr(), batch, x, y, scale);
 				}
-
-				if(highlightCell(i,j) || selectedCell(i,j)){
-					batch.setColor(overlay);
-					
-					drawTile(Assets.highlight, batch, x, y, scale);
-				}
-				else if(selecting && tileSelectable(i,j)){
-					batch.setColor(overlay);
-					
-					drawTile(Assets.selectable, batch, x, y, scale);
-				}
 				
+				if(selection != null){
+					switch(selection.tileDecoration(i, j)){
+					case Highlight: 
+						batch.setColor(overlay);
+						drawTile(Assets.highlight, batch, x, y, scale);
+						break;
+					case Select:
+						batch.setColor(overlay);
+						drawTile(Assets.selectable, batch, x, y, scale);
+						break;
+					default: 
+					}
+				}
+
 				float pieceX = 0, pieceY = 0;
 				for(PieceT piece : this.piecesAt(i, j)){
 					drawTile(piece.tr(), batch, x + pieceX, y + pieceY, pieceSize / 200f);
