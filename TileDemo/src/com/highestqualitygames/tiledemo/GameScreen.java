@@ -75,6 +75,7 @@ public class GameScreen implements Screen {
 	boolean[][][] workers;
 	// Used in tileBoard selection
 	boolean placingWorkers = false;
+	boolean hasWorkers = false;
 
 	Role[][] roles;
 	/* Index into arrays (NOT Board coordinates) */
@@ -273,9 +274,11 @@ public class GameScreen implements Screen {
 
 						stage.addAction(sequence(ui_delay(12.0f), new Action(){
 							public boolean act(float f){
-								if(!humanMadeChoice(player)){
-									throw new Error("No tile selected from queue. Event ordering problems likely.");
-								}
+								
+								// I don't think we still need this...
+//								if(!humanMadeChoice(player)){
+//									throw new Error("No tile selected from queue. Event ordering problems likely.");
+//								}
 		
 								Choice c = completeHumanChoice(player);
 
@@ -440,9 +443,8 @@ public class GameScreen implements Screen {
 		}
 		
 		void applyPlayerChoice(int player, Pair role){
-			Role r = roles[role.row][role.col];
-			//playerStates.get(player).currentRole = roles[role.row][role.col];
-			playerStates.get(player).numWorkers += playerStates.get(player).currentRole.workers();
+			Role r = roles[1 - role.row][role.col];
+			playerStates.get(player).numWorkers += r.workers();
 			
 			for(PointYield py : r.points()){
 				playerStates.get(player).score += py.points * countPlayerRegions(player, py.tile); 
@@ -451,71 +453,71 @@ public class GameScreen implements Screen {
 			roles[0][role.col] = Role.Empty;
 			roles[1][role.col] = Role.Empty; 
 		}
-	}
-	
-	// Expand from i,j outward on only Tile t, adding to seen list.
-	// If player is encountered, return true after crawl
-	boolean crawlAndCheck(List<Pair> seen, int i, int j, Tile t, int player){
-		boolean foundPlayerWorker = false;
 		
-		// These will not be large... TODO: Sets or whatever.
-		List<Pair> visited = new ArrayList<Pair>();
-		List<Pair> frontier = new ArrayList<Pair>();
-		
-		frontier.add(new Pair(i,j));
-		
-		while(frontier.size() > 0){
-			Pair p = frontier.get(0);
-			frontier.remove(p);
-			if(!visited.contains(p)) visited.add(p);
+		// Expand from i,j outward on only Tile t, adding to seen list.
+		// If player is encountered, return true after crawl
+		boolean crawlAndCheck(List<Pair> seen, int i, int j, Tile t, int player){
+			boolean foundPlayerWorker = false;
 			
-			// Add to frontier in four directions...
-			expandFrontier(frontier, visited, p, i + 1, j, t);
-			expandFrontier(frontier, visited, p, i - 1, j, t);
-			expandFrontier(frontier, visited, p, i, j + 1, t);
-			expandFrontier(frontier, visited, p, i, j - 1, t);
+			// These will not be large... TODO: Sets or whatever.
+			List<Pair> visited = new ArrayList<Pair>();
+			List<Pair> frontier = new ArrayList<Pair>();
 			
-			if(workers[player][p.row][p.col])
-				foundPlayerWorker = true;
+			frontier.add(new Pair(i,j));
+			
+			while(frontier.size() > 0){
+				Pair p = frontier.get(0);
+				frontier.remove(p);
+				if(!visited.contains(p)) visited.add(p);
+				
+				// Add to frontier in four directions...
+				expandFrontier(frontier, visited, p, i + 1, j, t);
+				expandFrontier(frontier, visited, p, i - 1, j, t);
+				expandFrontier(frontier, visited, p, i, j + 1, t);
+				expandFrontier(frontier, visited, p, i, j - 1, t);
+				
+				if(workers[player][p.row][p.col])
+					foundPlayerWorker = true;
+			}
+			
+			for(Pair p : visited){
+				seen.add(p);
+			}
+			
+			return foundPlayerWorker;
 		}
 		
-		for(Pair p : visited){
-			seen.add(p);
-		}
-		
-		return foundPlayerWorker;
-	}
-	
-	void expandFrontier(List<Pair> frontier, List<Pair> visited, Pair center, int i, int j, Tile t){
-		Pair p = new Pair(center.row + i, center.col + j);
-		
-		if(p.row >= 0 && p.col >= 0 && tiles.length > p.row && tiles[p.row].length > p.col && 
-				tiles[p.row][p.col] == t && !visited.contains(p)){
-			frontier.add(p);
-		}
-	}
-	
-	// 
-	int countPlayerRegions(int player, Tile t){
-		// Starting at 0,0, when we encounter this tile, if it has not been seen, 
-		// spread out to all unseen tiles, adding all to alreadySeen. If any workers
-		// for this player is in this region, add ONLY one to count.
-		List<Pair> alreadySeen = new ArrayList<Pair>();
-		int regions = 0;
-		
-		for(int i = 0; i < numPlayers + 1; i++){
-			for(int j = 0; j < tiles[i].length; j++){
-				if(tiles[i][j] == t && 
-						!alreadySeen.contains(new Pair(i,j)) && 
-						crawlAndCheck(alreadySeen,i,j,t,player)){
-					regions += 1;
-				}
+		void expandFrontier(List<Pair> frontier, List<Pair> visited, Pair center, int i, int j, Tile t){
+			Pair p = new Pair(center.row + i, center.col + j);
+			
+			if(p.row >= 0 && p.col >= 0 && tiles.length > p.row && tiles[p.row].length > p.col && 
+					tiles[p.row][p.col] == t && !visited.contains(p)){
+				frontier.add(p);
 			}
 		}
 		
-		return regions;
+		// 
+		int countPlayerRegions(int player, Tile t){
+			// Starting at 0,0, when we encounter this tile, if it has not been seen, 
+			// spread out to all unseen tiles, adding all to alreadySeen. If any workers
+			// for this player is in this region, add ONLY one to count.
+			List<Pair> alreadySeen = new ArrayList<Pair>();
+			int regions = 0;
+			
+			for(int i = 0; i < numPlayers + 1; i++){
+				for(int j = 0; j < tiles[i].length; j++){
+					if(tiles[i][j] == t && 
+							!alreadySeen.contains(new Pair(i,j)) && 
+							crawlAndCheck(alreadySeen,i,j,t,player)){
+						regions += 1;
+					}
+				}
+			}
+			
+			return regions;
+		}
 	}
-	
+
 	class PlaceWorkerPhase extends GamePhase<Integer> {
 		public PlaceWorkerPhase(){
 			super("Place workers round", "Short blach blach", "Long blah blah.");
@@ -527,7 +529,7 @@ public class GameScreen implements Screen {
 		
 		void roundOver(){
 			placingWorkers = false;
-			
+
 			if(queue.size() > numPlayers + 1){
 				new TileChoicePhase().beginPhase();
 			}
@@ -536,15 +538,23 @@ public class GameScreen implements Screen {
 			}
 		}
 		
-		int choice;
+		Integer choice;
 
 		void applyPlayerChoice(int player, Integer column){
-			workers[player][lastRow][column] = true;
+			if(column != null) {
+				if(playerStates.get(player).numWorkers <= 0)
+					throw new Error("Able to place worker without any!");
+				
+				workers[player][lastRow][column] = true;
+				playerStates.get(player).numWorkers -= 1;
+			}
 		}
 
 		// CPU Choice
 		void initCPUChoice(int player){
-			choice = cpuChooseRandomColumn(player, false);
+			choice = playerStates.get(player).numWorkers > 0 ? 
+					cpuChooseRandomColumn(player, false) : null; 
+			
 			tileBoard.highlightSet(0, choice, 1, 1);
 		}
 		
@@ -556,16 +566,22 @@ public class GameScreen implements Screen {
 		// Human choice
 		void initHumanChoice(int player){
 			tileBoard.beginSelection();
+			
+			hasWorkers = playerStates.get(player).numWorkers > 0;
 		}
 		
 		void initHumanLongChoice(int player){
-			int col = defaultColumn(false);
-			tileBoard.setSelection(0, col);
+
 		}
 		
 		Integer completeHumanChoice(int player){
-			int col = tileBoard.selectedCol();
+			Integer col = null;
+			
+			if(tileBoard.hasSelection())
+				col = tileBoard.selectedCol();
+			
 			tileBoard.clearSelecting();
+
 			return col;
 		}
 		
@@ -708,7 +724,8 @@ public class GameScreen implements Screen {
 			
 			boolean tileSelectable(int row, int col){
 				return row == 0 &&
-						(placingWorkers != (tiles[lastRow - row][col] == Tile.Empty));
+						((placingWorkers && hasWorkers && tiles[lastRow - row][col] != Tile.Empty) || 
+								(!placingWorkers && tiles[lastRow - row][col] == Tile.Empty));
 			}
 			
 			// This... is not really a good thing to do every frame.
