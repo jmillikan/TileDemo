@@ -8,17 +8,17 @@ import com.highestqualitygames.tiledemo.Assets.*;
 
 class TileDemoGame extends com.badlogic.gdx.Game {
 	public void create() {
-		// Start game with hardcoded player list...
-//		this.setScreen(new GameScreen(
-//				Arrays.asList(new Player(Worker.Black, "Bob", PlayerType.LocalCPU),
-//						new Player(Worker.Orange, "Jane", PlayerType.LocalHuman),
-//						new Player(Worker.Teal, "Hilel", PlayerType.LocalCPU),
-//						new Player(Worker.Purple, "Marius", PlayerType.LocalCPU))));
-		
-		// Start game with hardcoded player list...
+		// Start game with mixed player list...
 		this.setScreen(new GameScreen(
-				Arrays.asList(new Player(Worker.Black, "Bob", PlayerType.LocalHuman),
+				Arrays.asList(new Player(Worker.Black, "Bob", PlayerType.LocalCPU),
 						new Player(Worker.Orange, "Jane", PlayerType.LocalHuman),
-						new Player(Worker.Teal, "Hilel", PlayerType.LocalHuman))));
+						new Player(Worker.Teal, "Hilel", PlayerType.LocalCPU),
+						new Player(Worker.Purple, "Marius", PlayerType.LocalCPU))));
+		
+//		// Start game with all human player list...
+//		this.setScreen(new GameScreen(
+//				Arrays.asList(new Player(Worker.Black, "Bob", PlayerType.LocalHuman),
+//						new Player(Worker.Orange, "Jane", PlayerType.LocalHuman),
+//						new Player(Worker.Teal, "Hilel", PlayerType.LocalHuman))));
 	}
 }
