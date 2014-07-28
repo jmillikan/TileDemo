@@ -622,12 +622,12 @@ public class GameScreen implements Screen {
 		}
 		
 		// Human choice
-		void initHumanChoice(int player){
+		void initHumanChoice(final int player){
 			choice = null;
 			
 			tileBoard.selection = new Board.Selection(){
 				boolean tileSelectable(int row, int column){
-					return row == 0 && tiles[1 - row][column] != Tile.Empty;
+					return row == 0 && tiles[1 - row][column] != Tile.Empty && playerStates.get(player).numWorkers > 0;
 				}
 				
 				void selected(int row, int column){
