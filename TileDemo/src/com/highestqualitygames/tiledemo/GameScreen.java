@@ -68,8 +68,12 @@ public class GameScreen implements Screen {
 	int numPlayers;
 	List<Player> players;
 
+	
 	// PROPERTIES - GAME LOGIC - MUTATING
 	List<PlayerState> playerStates;
+
+	enum GamePhase { TileChoose, TilePlace, RoleChoose, WorkerPlace }
+	GamePhase phase;
 	
 	List<Tile> queue = new ArrayList<Tile>();
 	Tile[][] tiles;
@@ -92,7 +96,6 @@ public class GameScreen implements Screen {
 	}
 
 	// Current queue is implicitly the first 5 tiles (4 players + 1 slack)
-
 	public GameScreen(List<Player> playerList) {
 		Assets.load();
 		
@@ -132,6 +135,39 @@ public class GameScreen implements Screen {
 		beginRound();
 	}
 	
+	// This could be done more directly, but hoping to move some stuff out...
+	// Or to replace this with a way more explicit state based system
+	public Action nextPhase(){
+		return new Action(){
+			public boolean act(float d){
+				switch(phase){
+				case TileChoose:
+					phase = GamePhase.TilePlace;
+					tilePlacePhase().beginPhase();
+					break;
+				case TilePlace:
+					phase = GamePhase.RoleChoose;
+					roleChoicePhase().beginPhase();
+					break;
+				case RoleChoose:
+					phase = GamePhase.WorkerPlace;
+					placeWorkerPhase().beginPhase();
+					break;
+				case WorkerPlace:
+					if(queue.size() > numPlayers + 1){
+						phase = GamePhase.TileChoose;
+						tileChoicePhase().beginPhase();
+					}
+					else {
+						announcement.setText("The Game Is Over");
+					}
+				}
+
+				return true;
+			}
+		};
+	}
+	
 	void beginRound(){
 		// TODO: Have an explicit phase ordering somewhere...
 		tileChoicePhase().beginPhase();
@@ -139,7 +175,7 @@ public class GameScreen implements Screen {
 
 	// Used in place of delay to speed/slow actions for smoke testing
 	Action ui_delay(float f){
-		return delay(f / 3);
+		return delay(f / 10);
 	}
 	
 	public void dispose() {
@@ -177,7 +213,7 @@ public class GameScreen implements Screen {
 	 * GAME ROUNDS
 	 */
 	
-	interface GamePhaseHandler<Choice> {
+	interface PlayerChoiceHandler<Choice> {
 		void initHumanChoice(int player);
 		boolean humanMadeChoice(int player);
 		void initHumanLongChoice(int player);
@@ -191,17 +227,18 @@ public class GameScreen implements Screen {
 		void roundOver();
 	}
 	
-	class GamePhase<Choice> {
+	class PlayerChoicePhase<Choice> {
 		String roundName, beginHumanChoiceText, longHumanChoiceText;
-		GamePhaseHandler<Choice> phase;
+		PlayerChoiceHandler<Choice> phase;
+		Action next;
 		
-		public GamePhase(String name, String beginHuman, String longHuman, GamePhaseHandler<Choice> phase){
+		public PlayerChoicePhase(String name, String beginHuman, String longHuman, Action next, PlayerChoiceHandler<Choice> phase){
 			roundName = name;
 			beginHumanChoiceText = beginHuman;
 			longHumanChoiceText = longHuman;
 			this.phase = phase;
+			this.next = next;
 		}
-		
 
 		void beginPhase(){
 			announcement.setText(roundName);
@@ -251,6 +288,7 @@ public class GameScreen implements Screen {
 			
 			if(player + 1 >= numPlayers){
 				phase.roundOver();
+				next.act(0);
 			}
 			else {
 				beginPlayerChoice(player + 1);
@@ -278,12 +316,6 @@ public class GameScreen implements Screen {
 
 						stage.addAction(sequence(ui_delay(12.0f), new Action(){
 							public boolean act(float f){
-								
-								// I don't think we still need this...
-//								if(!humanMadeChoice(player)){
-//									throw new Error("No tile selected from queue. Event ordering problems likely.");
-//								}
-		
 								Choice c = phase.completeHumanChoice(player);
 
 								completePlayerChoice(player, c);
@@ -311,84 +343,86 @@ public class GameScreen implements Screen {
 		}
 	}
 	
-	public GamePhase<Integer> tileChoicePhase(){
-		GamePhaseHandler<Integer> tileChoicePhase = new GamePhaseHandler<Integer>() {
-			int choice;
-			
-			public void initCPUChoice(int player){
-				choice = randomAvailableTile(player);
-
-				tileQueue.selection = new HighlightTile(0, choice);
-			}
-			
-			public Integer completeCPUChoice(int player){
-				tileQueue.selection = null;
-				
-				return choice;
-			}
-			
-			public void applyPlayerChoice(int player, Integer queueIndex){
-				playerStates.get(player).currentTile = queue.get(queueIndex);
-				queue.set(queueIndex, Tile.Empty);
-			}
-			
-			public void roundOver(){
-				shiftTileQueue();
-				tilePlacePhase().beginPhase();
-			}
-			
-			public void initHumanChoice(int player){
-				choice = -1;
-				
-				// We will usually want clicked to act more like a "select" constrained by tileSelectable...
-				// Question is "always" or not
-				
-				tileQueue.selection = new Board.Selection(){
-					boolean tileSelectable(int row, int column){
-						return column < numPlayers + 1 && queue.get(column) != Tile.Empty;
-					}
+	public PlayerChoicePhase<Integer> tileChoicePhase(){
+		return new PlayerChoicePhase<Integer>("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining", 
+				nextPhase(),
+				new PlayerChoiceHandler<Integer>() {
+					int choice;
 					
-					void selected(int row, int column){
-						choice = column;
-					}
-					
-					TileDecoration tileDecoration(int row, int column){
-						return column == choice ? Highlight :
-							tileSelectable(row, column) ? Select : None;
-					}
-				};
-			}
-			
-			public void initHumanLongChoice(int player){
-				choice = defaultTileIndex();
-			}
-			
-			public Integer completeHumanChoice(int player){
-				announcement.setText("");
-				tileQueue.selection = null;
-				
-				return choice;
-			}
-			
-			public boolean humanMadeChoice(int player){
-				return choice != -1; 
-			}
-			
-			public void initRound(){}
-		};
+					public void initCPUChoice(int player){
+						choice = randomAvailableTile(player);
 		
-		return new GamePhase<Integer>("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining", tileChoicePhase);
+						tileQueue.selection = new HighlightTile(0, choice);
+					}
+					
+					public Integer completeCPUChoice(int player){
+						tileQueue.selection = null;
+						
+						return choice;
+					}
+					
+					public void applyPlayerChoice(int player, Integer queueIndex){
+						playerStates.get(player).currentTile = queue.get(queueIndex);
+						queue.set(queueIndex, Tile.Empty);
+					}
+					
+					public void roundOver(){
+						shiftTileQueue();
+					}
+					
+					public void initHumanChoice(int player){
+						choice = -1;
+						
+						// We will usually want clicked to act more like a "select" constrained by tileSelectable...
+						// Question is "always" or not
+						
+						tileQueue.selection = new Board.Selection(){
+							boolean tileSelectable(int row, int column){
+								return column < numPlayers + 1 && queue.get(column) != Tile.Empty;
+							}
+							
+							void selected(int row, int column){
+								choice = column;
+							}
+							
+							TileDecoration tileDecoration(int row, int column){
+								return column == choice ? Highlight :
+									tileSelectable(row, column) ? Select : None;
+							}
+						};
+					}
+					
+					public void initHumanLongChoice(int player){
+						choice = defaultTileIndex();
+					}
+					
+					public Integer completeHumanChoice(int player){
+						announcement.setText("");
+						tileQueue.selection = null;
+						
+						return choice;
+					}
+					
+					public boolean humanMadeChoice(int player){
+						return choice != -1; 
+					}
+					
+					public void initRound(){}
+				});
 	}
 	
-	public GamePhase<Integer> tilePlacePhase(){
-		return new GamePhase<Integer>("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.",
-				new GamePhaseHandler<Integer>(){
+	public PlayerChoicePhase<Integer> tilePlacePhase(){
+		return new PlayerChoicePhase<Integer>("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.",
+				nextPhase(),
+				new PlayerChoiceHandler<Integer>(){
 					int choice = -1;
 					
 					public void initRound(){
 						addRow();
 					}
-					
+
+					public void roundOver(){}
+
 					public void initCPUChoice(int player){
 						choice = cpuChooseRandomColumn(player, true);
 						tileBoard.selection = new HighlightTile(0, choice);
@@ -431,9 +465,6 @@ public class GameScreen implements Screen {
 						return choice != -1;
 					}
 					
-					public void roundOver(){
-						roleChoicePhase().beginPhase();
-					}
 					
 					public void applyPlayerChoice(int player, Integer column){
 						Tile t = playerStates.get(player).currentTile;
@@ -444,9 +475,10 @@ public class GameScreen implements Screen {
 				});
 	}
 	
-	GamePhase<Pair> roleChoicePhase(){
-		return new GamePhase<Pair>("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.",
-				new GamePhaseHandler<Pair>(){
+	PlayerChoicePhase<Pair> roleChoicePhase(){
+		return new PlayerChoicePhase<Pair>("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.",
+				nextPhase(),
+				new PlayerChoiceHandler<Pair>(){
 					Pair choice;
 					
 					public void initRound(){
@@ -498,8 +530,6 @@ public class GameScreen implements Screen {
 					
 					public void roundOver(){
 						roleChooseLayer.setVisible(false);
-						placeWorkerPhase().beginPhase();
-						//new TileChoicePhase().beginPhase();
 					}
 					
 					public void applyPlayerChoice(int player, Pair role){
@@ -579,19 +609,12 @@ public class GameScreen implements Screen {
 				});
 	}
 	
-	GamePhase<Integer> placeWorkerPhase(){
-		return new GamePhase<Integer>("Place workers round", "Short blach blach", "Long blah blah.",
-				new GamePhaseHandler<Integer>(){
+	PlayerChoicePhase<Integer> placeWorkerPhase(){
+		return new PlayerChoicePhase<Integer>("Place workers round", "Short blach blach", "Long blah blah.",
+				nextPhase(),
+				new PlayerChoiceHandler<Integer>(){
 					public void initRound(){}
-					
-					public void roundOver(){
-						if(queue.size() > numPlayers + 1){
-							tileChoicePhase().beginPhase();
-						}
-						else {
-							announcement.setText("The Game Is Over");
-						}
-					}
+					public void roundOver(){}
 					
 					Integer choice;
 			
@@ -769,13 +792,13 @@ public class GameScreen implements Screen {
 	 *  MAKE GAME DISPLAY LAYERS
 	 */
 
-	<A extends Actor> Container<A> C(A a){
+	<A extends Actor> Container<A> container(A a){
 		Container<A> c = new Container<A>(a);
 		c.setTouchable(Touchable.childrenOnly);
 		return c;
 	}
 	
-	ScrollPane SP(Actor a){
+	ScrollPane scrollPane(Actor a){
 		ScrollPane sp = new ScrollPane(a);
 		sp.setTouchable(Touchable.childrenOnly);
 		return sp;
@@ -803,7 +826,7 @@ public class GameScreen implements Screen {
 			}
 		};
 		
-		ScrollPane p = SP(C(tileBoard).pad(100f).center());
+		ScrollPane p = scrollPane(container(tileBoard).pad(100f).center());
 		ScrollPaneStyle s = new ScrollPaneStyle(new TiledDrawable(Assets.bg), null, null, null, null);
 		p.setStyle(s);
 		
@@ -819,7 +842,7 @@ public class GameScreen implements Screen {
 		announcement = new Label("Announcement", new Label.LabelStyle(new BitmapFont(), Color.BLACK));
 		announcement.setAlignment(Align.center);
 		
-		return C(announcement).padTop(100f).top();
+		return container(announcement).padTop(100f).top();
 	}
 	
 	Actor makeTileQueueLayer(){
@@ -829,10 +852,10 @@ public class GameScreen implements Screen {
 			}
 		};
 		
-		ScrollPane pane = SP(C(tileQueue).padLeft(this.stage.getWidth() - 180f).fill(0, 0));
+		ScrollPane pane = scrollPane(container(tileQueue).padLeft(this.stage.getWidth() - 180f).fill(0, 0));
 		pane.setupOverscroll(0f, 0f, 0f);
 		
-		return C(pane).padTop(30f).top().fill(1f,0f);
+		return container(pane).padTop(30f).top().fill(1f,0f);
 	}
 
 	Actor makeChooseRoleLayer(){
@@ -842,6 +865,6 @@ public class GameScreen implements Screen {
 			}
 		};
 		
-		return C(SP(roleChoose)).bottom();
+		return container(scrollPane(roleChoose)).bottom();
 	}
 }
