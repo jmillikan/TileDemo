@@ -37,12 +37,11 @@ public class GameScreen implements Screen {
 	Stage stage;
 	Actor roleChooseLayer;
 	
+	Board<Tile,Tile> tileQueue, tileChoice; // 1D
 	// Note: Board displays tiles "Y up", so we reverse that in tileAt and 
 	// elsewhere with lastRow - <row in board> or 1 - <row in board>
-	Board<Tile,Worker> tileBoard; // tileBoard uses placingWorkers
-	
-	Board<Tile,Tile> tileQueue, tileChoice;
-	Board<Role,Role> roleChoose, roleChoice;
+	Board<Tile,Worker> tileBoard; // 2D - Y reversed
+	Board<Role,Role> roleChoose, roleChoice; // 2D - Y reversed
 	Label announcement;
 	
 	// Non-changing player information
@@ -135,7 +134,7 @@ public class GameScreen implements Screen {
 	
 	void beginRound(){
 		// TODO: Have an explicit phase ordering somewhere...
-		new TileChoicePhase().beginPhase();
+		tileChoicePhase().beginPhase();
 	}
 
 	// Used in place of delay to speed/slow actions for smoke testing
@@ -178,31 +177,36 @@ public class GameScreen implements Screen {
 	 * GAME ROUNDS
 	 */
 	
-	abstract class GamePhase<Choice> {
-		String roundName, beginHumanChoiceText, longHumanChoiceText;
+	interface GamePhaseHandler<Choice> {
+		void initHumanChoice(int player);
+		boolean humanMadeChoice(int player);
+		void initHumanLongChoice(int player);
+		Choice completeHumanChoice(int player);
 		
-		public GamePhase(String name, String beginHuman, String longHuman){
+		void initCPUChoice(int player);
+		Choice completeCPUChoice(int player);
+		void applyPlayerChoice(int player, Choice c);
+		void initRound();
+		
+		void roundOver();
+	}
+	
+	class GamePhase<Choice> {
+		String roundName, beginHumanChoiceText, longHumanChoiceText;
+		GamePhaseHandler<Choice> phase;
+		
+		public GamePhase(String name, String beginHuman, String longHuman, GamePhaseHandler<Choice> phase){
 			roundName = name;
 			beginHumanChoiceText = beginHuman;
 			longHumanChoiceText = longHuman;
+			this.phase = phase;
 		}
 		
-		abstract void initHumanChoice(int player);
-		abstract boolean humanMadeChoice(int player);
-		abstract void initHumanLongChoice(int player);
-		abstract Choice completeHumanChoice(int player);
-		
-		abstract void initCPUChoice(int player);
-		abstract Choice completeCPUChoice(int player);
-		abstract void applyPlayerChoice(int player, Choice c);
-		abstract void initRound();
-		
-		abstract void roundOver();
 
 		void beginPhase(){
 			announcement.setText(roundName);
 			
-			initRound();
+			phase.initRound();
 			
 			stage.addAction(sequence(ui_delay(5.0f), new Action(){
 				public boolean act(float delta){
@@ -227,11 +231,11 @@ public class GameScreen implements Screen {
 		// Computer player X selects a tile.
 		// Highlight tile and wait 3 seconds, then move on.
 		void beginCPUChoice(final int player){
-			initCPUChoice(player);
+			phase.initCPUChoice(player);
 			
 			stage.addAction(sequence(ui_delay(3.0f), new Action(){
 				public boolean act(float f){
-					Choice c = completeCPUChoice(player);
+					Choice c = phase.completeCPUChoice(player);
 
 					completePlayerChoice(player, c);
 					
@@ -243,10 +247,10 @@ public class GameScreen implements Screen {
 		void completePlayerChoice(int player, Choice c){
 			// Test: Move first tile in queue to first spot in lastRow
 			
-			applyPlayerChoice(player, c);
+			phase.applyPlayerChoice(player, c);
 			
 			if(player + 1 >= numPlayers){
-				roundOver();
+				phase.roundOver();
 			}
 			else {
 				beginPlayerChoice(player + 1);
@@ -254,23 +258,23 @@ public class GameScreen implements Screen {
 		}
 		
 		void beginHumanChoice(final int player){
-			initHumanChoice(player);
+			phase.initHumanChoice(player);
 
 			announcement.setText(beginHumanChoiceText);
 			
 			stage.addAction(sequence(ui_delay(3.0f), new Action(){
 				public boolean act(float f){
-					if(humanMadeChoice(player)){
+					if(phase.humanMadeChoice(player)){
 						announcement.setText("");
 						
-						Choice c = completeHumanChoice(player);
+						Choice c = phase.completeHumanChoice(player);
 						
 						completePlayerChoice(player, c);
 					}
 					else {
 						announcement.setText(longHumanChoiceText);
 						
-						initHumanLongChoice(player);
+						phase.initHumanLongChoice(player);
 
 						stage.addAction(sequence(ui_delay(12.0f), new Action(){
 							public boolean act(float f){
@@ -280,7 +284,7 @@ public class GameScreen implements Screen {
 //									throw new Error("No tile selected from queue. Event ordering problems likely.");
 //								}
 		
-								Choice c = completeHumanChoice(player);
+								Choice c = phase.completeHumanChoice(player);
 
 								completePlayerChoice(player, c);
 								
@@ -307,353 +311,348 @@ public class GameScreen implements Screen {
 		}
 	}
 	
-	class TileChoicePhase extends GamePhase<Integer> {
-		int choice;
-		
-		public TileChoicePhase(){
-			super("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining");
-		}
-		
-		void initCPUChoice(int player){
-			choice = randomAvailableTile(player);
+	public GamePhase<Integer> tileChoicePhase(){
+		GamePhaseHandler<Integer> tileChoicePhase = new GamePhaseHandler<Integer>() {
+			int choice;
+			
+			public void initCPUChoice(int player){
+				choice = randomAvailableTile(player);
 
-			tileQueue.selection = new HighlightTile(0, choice);
-		}
-		
-		Integer completeCPUChoice(int player){
-			tileQueue.selection = null;
-			
-			return choice;
-		}
-		
-		void applyPlayerChoice(int player, Integer queueIndex){
-			playerStates.get(player).currentTile = queue.get(queueIndex);
-			queue.set(queueIndex, Tile.Empty);
-		}
-		
-		void roundOver(){
-			shiftTileQueue();
-			new TilePlacePhase().beginPhase();
-		}
-		
-		void initHumanChoice(int player){
-			choice = -1;
-			
-			// We will usually want clicked to act more like a "select" constrained by tileSelectable...
-			// Question is "always" or not
-			
-			tileQueue.selection = new Board.Selection(){
-				boolean tileSelectable(int row, int column){
-					return column < numPlayers + 1 && queue.get(column) != Tile.Empty;
-				}
-				
-				void selected(int row, int column){
-					choice = column;
-				}
-				
-				TileDecoration tileDecoration(int row, int column){
-					return column == choice ? Highlight :
-						tileSelectable(row, column) ? Select : None;
-				}
-			};
-		}
-		
-		void initHumanLongChoice(int player){
-			choice = defaultTileIndex();
-		}
-		
-		Integer completeHumanChoice(int player){
-			announcement.setText("");
-			tileQueue.selection = null;
-			
-			return choice;
-		}
-		
-		boolean humanMadeChoice(int player){
-			return choice != -1; 
-		}
-		
-		void initRound(){}
-	}
-	
-	class TilePlacePhase extends GamePhase<Integer> {
-		int choice = -1;
-		
-		public TilePlacePhase(){
-			super("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.");
-		}
-		
-		void initRound(){
-			addRow();
-		}
-		
-		void initCPUChoice(int player){
-			choice = cpuChooseRandomColumn(player, true);
-			tileBoard.selection = new HighlightTile(0, choice);
-		}
-		
-		Integer completeCPUChoice(int player){
-			tileBoard.selection = null;
-			return choice;
-		}
-		
-		void initHumanChoice(int player){
-			choice = -1;
-			
-			tileBoard.selection = new Board.Selection(){
-				boolean tileSelectable(int row, int column){
-					return row == 0 && column < numPlayers + 1 && tiles[lastRow][column] == Tile.Empty;
-				}
-				
-				void selected(int row, int column){
-					choice = column;
-				}
-				
-				TileDecoration tileDecoration(int row, int column){
-					return row == 0 && column == choice ? Highlight :
-						tileSelectable(row, column) ? Select : None;
-				}
-			};
-		}
-		
-		void initHumanLongChoice(int player){
-			choice = defaultColumn(true);
-		}
-		
-		Integer completeHumanChoice(int player){
-			tileBoard.selection = null;
-			return choice;
-		}
-		
-		boolean humanMadeChoice(int player){
-			return choice != -1;
-		}
-		
-		void roundOver(){
-			new RoleChoicePhase().beginPhase();
-		}
-		
-		void applyPlayerChoice(int player, Integer column){
-			Tile t = playerStates.get(player).currentTile;
-			playerStates.get(player).currentTile = Tile.Empty;
-			
-			tiles[lastRow][column] = t;
-		}
-	}
-	
-	class RoleChoicePhase extends GamePhase<Pair> {
-		Pair choice;
-		
-		public RoleChoicePhase(){
-			super("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.");
-		}
-		
-		void initRound(){
-			roleChooseLayer.setVisible(true);
-			setAllRoles();
-		}
-		
-		void initCPUChoice(int player){
-			choice = cpuChooseRandomRole(player);
-			roleChoose.selection = new HighlightTile(1 - choice.row, choice.col);
-		}
-		
-		Pair completeCPUChoice(int player){
-			roleChoose.selection = null;
-			return choice;
-		}
-		
-		void initHumanChoice(int player){
-			choice = null;
-			
-			roleChoose.selection = new Board.Selection(){
-				boolean tileSelectable(int row, int column){
-					return roles[1 - row][column] != Role.Empty;
-				}
-				
-				void selected(int row, int column){
-					choice = new Pair(1 - row, column);
-				}
-				
-				TileDecoration tileDecoration(int row, int column){
-					return new Pair(1 - row, column).equals(choice) ? Highlight :
-						tileSelectable(row, column) ? Select : None;
-				}
-			};
-		}
-		
-		void initHumanLongChoice(int player){
-			choice = defaultRole(player);
-		}
-		
-		Pair completeHumanChoice(int player){
-			roleChoose.selection = null;
-			return choice;
-		}
-		
-		boolean humanMadeChoice(int player){
-			return choice != null;
-		}
-		
-		void roundOver(){
-			roleChooseLayer.setVisible(false);
-			new PlaceWorkerPhase().beginPhase();
-			//new TileChoicePhase().beginPhase();
-		}
-		
-		void applyPlayerChoice(int player, Pair role){
-			Role r = roles[1 - role.row][role.col];
-			playerStates.get(player).numWorkers += r.workers();
-			
-			for(PointYield py : r.points()){
-				playerStates.get(player).score += py.points * countPlayerRegions(player, py.tile); 
+				tileQueue.selection = new HighlightTile(0, choice);
 			}
 			
-			roles[0][role.col] = Role.Empty;
-			roles[1][role.col] = Role.Empty; 
-		}
-		
-		// Expand from i,j outward on only Tile t, adding to seen list.
-		// If player is encountered, return true after crawl
-		boolean crawlAndCheck(List<Pair> seen, int i, int j, Tile t, int player){
-			boolean foundPlayerWorker = false;
-			
-			// These will not be large... TODO: Sets or whatever.
-			List<Pair> visited = new ArrayList<Pair>();
-			List<Pair> frontier = new ArrayList<Pair>();
-			
-			frontier.add(new Pair(i,j));
-			
-			while(frontier.size() > 0){
-				Pair p = frontier.get(0);
-				frontier.remove(p);
-				if(!visited.contains(p)) visited.add(p);
+			public Integer completeCPUChoice(int player){
+				tileQueue.selection = null;
 				
-				// Add to frontier in four directions...
-				expandFrontier(frontier, visited, p, i + 1, j, t);
-				expandFrontier(frontier, visited, p, i - 1, j, t);
-				expandFrontier(frontier, visited, p, i, j + 1, t);
-				expandFrontier(frontier, visited, p, i, j - 1, t);
+				return choice;
+			}
+			
+			public void applyPlayerChoice(int player, Integer queueIndex){
+				playerStates.get(player).currentTile = queue.get(queueIndex);
+				queue.set(queueIndex, Tile.Empty);
+			}
+			
+			public void roundOver(){
+				shiftTileQueue();
+				tilePlacePhase().beginPhase();
+			}
+			
+			public void initHumanChoice(int player){
+				choice = -1;
 				
-				if(workers[player][p.row][p.col])
-					foundPlayerWorker = true;
-			}
-			
-			for(Pair p : visited){
-				seen.add(p);
-			}
-			
-			return foundPlayerWorker;
-		}
-		
-		void expandFrontier(List<Pair> frontier, List<Pair> visited, Pair center, int i, int j, Tile t){
-			Pair p = new Pair(center.row + i, center.col + j);
-			
-			if(p.row >= 0 && p.col >= 0 && tiles.length > p.row && tiles[p.row].length > p.col && 
-					tiles[p.row][p.col] == t && !visited.contains(p)){
-				frontier.add(p);
-			}
-		}
-		
-		// 
-		int countPlayerRegions(int player, Tile t){
-			// Starting at 0,0, when we encounter this tile, if it has not been seen, 
-			// spread out to all unseen tiles, adding all to alreadySeen. If any workers
-			// for this player is in this region, add ONLY one to count.
-			List<Pair> alreadySeen = new ArrayList<Pair>();
-			int regions = 0;
-			
-			for(int i = 0; i < numPlayers + 1; i++){
-				for(int j = 0; j < tiles[i].length; j++){
-					if(tiles[i][j] == t && 
-							!alreadySeen.contains(new Pair(i,j)) && 
-							crawlAndCheck(alreadySeen,i,j,t,player)){
-						regions += 1;
+				// We will usually want clicked to act more like a "select" constrained by tileSelectable...
+				// Question is "always" or not
+				
+				tileQueue.selection = new Board.Selection(){
+					boolean tileSelectable(int row, int column){
+						return column < numPlayers + 1 && queue.get(column) != Tile.Empty;
 					}
-				}
+					
+					void selected(int row, int column){
+						choice = column;
+					}
+					
+					TileDecoration tileDecoration(int row, int column){
+						return column == choice ? Highlight :
+							tileSelectable(row, column) ? Select : None;
+					}
+				};
 			}
 			
-			return regions;
-		}
+			public void initHumanLongChoice(int player){
+				choice = defaultTileIndex();
+			}
+			
+			public Integer completeHumanChoice(int player){
+				announcement.setText("");
+				tileQueue.selection = null;
+				
+				return choice;
+			}
+			
+			public boolean humanMadeChoice(int player){
+				return choice != -1; 
+			}
+			
+			public void initRound(){}
+		};
+		
+		return new GamePhase<Integer>("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining", tileChoicePhase);
 	}
-
-	class PlaceWorkerPhase extends GamePhase<Integer> {
-		public PlaceWorkerPhase(){
-			super("Place workers round", "Short blach blach", "Long blah blah.");
-		}
-		
-		void initRound(){
-
-		}
-		
-		void roundOver(){
-			if(queue.size() > numPlayers + 1){
-				new TileChoicePhase().beginPhase();
-			}
-			else {
-				announcement.setText("The Game Is Over");
-			}
-		}
-		
-		Integer choice;
-
-		void applyPlayerChoice(int player, Integer column){
-			if(column != null) {
-				if(playerStates.get(player).numWorkers <= 0)
-					throw new Error("Able to place worker without any!");
-				
-				workers[player][lastRow][column] = true;
-				playerStates.get(player).numWorkers -= 1;
-			}
-		}
-
-		// CPU Choice
-		void initCPUChoice(int player){
-			choice = playerStates.get(player).numWorkers > 0 ? 
-					cpuChooseRandomColumn(player, false) : null; 
+	
+	public GamePhase<Integer> tilePlacePhase(){
+		return new GamePhase<Integer>("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.",
+				new GamePhaseHandler<Integer>(){
+					int choice = -1;
+					
+					public void initRound(){
+						addRow();
+					}
+					
+					public void initCPUChoice(int player){
+						choice = cpuChooseRandomColumn(player, true);
+						tileBoard.selection = new HighlightTile(0, choice);
+					}
+					
+					public Integer completeCPUChoice(int player){
+						tileBoard.selection = null;
+						return choice;
+					}
+					
+					public void initHumanChoice(int player){
+						choice = -1;
+						
+						tileBoard.selection = new Board.Selection(){
+							boolean tileSelectable(int row, int column){
+								return row == 0 && column < numPlayers + 1 && tiles[lastRow][column] == Tile.Empty;
+							}
+							
+							void selected(int row, int column){
+								choice = column;
+							}
+							
+							TileDecoration tileDecoration(int row, int column){
+								return row == 0 && column == choice ? Highlight :
+									tileSelectable(row, column) ? Select : None;
+							}
+						};
+					}
+					
+					public void initHumanLongChoice(int player){
+						choice = defaultColumn(true);
+					}
+					
+					public Integer completeHumanChoice(int player){
+						tileBoard.selection = null;
+						return choice;
+					}
+					
+					public boolean humanMadeChoice(int player){
+						return choice != -1;
+					}
+					
+					public void roundOver(){
+						roleChoicePhase().beginPhase();
+					}
+					
+					public void applyPlayerChoice(int player, Integer column){
+						Tile t = playerStates.get(player).currentTile;
+						playerStates.get(player).currentTile = Tile.Empty;
+						
+						tiles[lastRow][column] = t;
+					}
+				});
+	}
+	
+	GamePhase<Pair> roleChoicePhase(){
+		return new GamePhase<Pair>("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.",
+				new GamePhaseHandler<Pair>(){
+					Pair choice;
+					
+					public void initRound(){
+						roleChooseLayer.setVisible(true);
+						setAllRoles();
+					}
+					
+					public void initCPUChoice(int player){
+						choice = cpuChooseRandomRole(player);
+						roleChoose.selection = new HighlightTile(1 - choice.row, choice.col);
+					}
+					
+					public Pair completeCPUChoice(int player){
+						roleChoose.selection = null;
+						return choice;
+					}
+					
+					public void initHumanChoice(int player){
+						choice = null;
+						
+						roleChoose.selection = new Board.Selection(){
+							boolean tileSelectable(int row, int column){
+								return roles[1 - row][column] != Role.Empty;
+							}
+							
+							void selected(int row, int column){
+								choice = new Pair(1 - row, column);
+							}
+							
+							TileDecoration tileDecoration(int row, int column){
+								return new Pair(1 - row, column).equals(choice) ? Highlight :
+									tileSelectable(row, column) ? Select : None;
+							}
+						};
+					}
+					
+					public void initHumanLongChoice(int player){
+						choice = defaultRole(player);
+					}
+					
+					public Pair completeHumanChoice(int player){
+						roleChoose.selection = null;
+						return choice;
+					}
+					
+					public boolean humanMadeChoice(int player){
+						return choice != null;
+					}
+					
+					public void roundOver(){
+						roleChooseLayer.setVisible(false);
+						placeWorkerPhase().beginPhase();
+						//new TileChoicePhase().beginPhase();
+					}
+					
+					public void applyPlayerChoice(int player, Pair role){
+						Role r = roles[1 - role.row][role.col];
+						playerStates.get(player).numWorkers += r.workers();
+						
+						for(PointYield py : r.points()){
+							playerStates.get(player).score += py.points * countPlayerRegions(player, py.tile); 
+						}
+						
+						roles[0][role.col] = Role.Empty;
+						roles[1][role.col] = Role.Empty; 
+					}
+					
+					// Expand from i,j outward on only Tile t, adding to seen list.
+					// If player is encountered, return true after crawl
+					boolean crawlAndCheck(List<Pair> seen, int i, int j, Tile t, int player){
+						boolean foundPlayerWorker = false;
+						
+						// These will not be large... TODO: Sets or whatever.
+						List<Pair> visited = new ArrayList<Pair>();
+						List<Pair> frontier = new ArrayList<Pair>();
+						
+						frontier.add(new Pair(i,j));
+						
+						while(frontier.size() > 0){
+							Pair p = frontier.get(0);
+							frontier.remove(p);
+							if(!visited.contains(p)) visited.add(p);
+							
+							// Add to frontier in four directions...
+							expandFrontier(frontier, visited, p, i + 1, j, t);
+							expandFrontier(frontier, visited, p, i - 1, j, t);
+							expandFrontier(frontier, visited, p, i, j + 1, t);
+							expandFrontier(frontier, visited, p, i, j - 1, t);
+							
+							if(workers[player][p.row][p.col])
+								foundPlayerWorker = true;
+						}
+						
+						for(Pair p : visited){
+							seen.add(p);
+						}
+						
+						return foundPlayerWorker;
+					}
+					
+					void expandFrontier(List<Pair> frontier, List<Pair> visited, Pair center, int i, int j, Tile t){
+						Pair p = new Pair(center.row + i, center.col + j);
+						
+						if(p.row >= 0 && p.col >= 0 && tiles.length > p.row && tiles[p.row].length > p.col && 
+								tiles[p.row][p.col] == t && !visited.contains(p)){
+							frontier.add(p);
+						}
+					}
+					
+					// 
+					int countPlayerRegions(int player, Tile t){
+						// Starting at 0,0, when we encounter this tile, if it has not been seen, 
+						// spread out to all unseen tiles, adding all to alreadySeen. If any workers
+						// for this player is in this region, add ONLY one to count.
+						List<Pair> alreadySeen = new ArrayList<Pair>();
+						int regions = 0;
+						
+						for(int i = 0; i < numPlayers + 1; i++){
+							for(int j = 0; j < tiles[i].length; j++){
+								if(tiles[i][j] == t && 
+										!alreadySeen.contains(new Pair(i,j)) && 
+										crawlAndCheck(alreadySeen,i,j,t,player)){
+									regions += 1;
+								}
+							}
+						}
+						
+						return regions;
+					}
+				});
+	}
+	
+	GamePhase<Integer> placeWorkerPhase(){
+		return new GamePhase<Integer>("Place workers round", "Short blach blach", "Long blah blah.",
+				new GamePhaseHandler<Integer>(){
+					public void initRound(){}
+					
+					public void roundOver(){
+						if(queue.size() > numPlayers + 1){
+							tileChoicePhase().beginPhase();
+						}
+						else {
+							announcement.setText("The Game Is Over");
+						}
+					}
+					
+					Integer choice;
 			
-			if(choice != null)
-				tileBoard.selection = new HighlightTile(0, choice);
-		}
-		
-		Integer completeCPUChoice(int player){
-			tileBoard.selection = null;
-			return choice;
-		}
-		
-		// Human choice
-		void initHumanChoice(final int player){
-			choice = null;
+					public void applyPlayerChoice(int player, Integer column){
+						if(column != null) {
+							if(playerStates.get(player).numWorkers <= 0)
+								throw new Error("Able to place worker without any!");
+							
+							workers[player][lastRow][column] = true;
+							playerStates.get(player).numWorkers -= 1;
+						}
+					}
 			
-			tileBoard.selection = new Board.Selection(){
-				boolean tileSelectable(int row, int column){
-					return row == 0 && tiles[1 - row][column] != Tile.Empty && playerStates.get(player).numWorkers > 0;
-				}
-				
-				void selected(int row, int column){
-					choice = column;
-				}
-				
-				TileDecoration tileDecoration(int row, int column){
-					return choice != null && row == 0 && choice.equals(column) ? Highlight :
-						tileSelectable(row, column) ? Select : None;
-				}
-			};
-		}
-		
-		void initHumanLongChoice(int player){
+					// CPU Choice
+					public void initCPUChoice(int player){
+						choice = playerStates.get(player).numWorkers > 0 ? 
+								cpuChooseRandomColumn(player, false) : null; 
+						
+						if(choice != null)
+							tileBoard.selection = new HighlightTile(0, choice);
+					}
+					
+					public Integer completeCPUChoice(int player){
+						tileBoard.selection = null;
+						return choice;
+					}
+					
+					// Human choice
+					public void initHumanChoice(final int player){
+						choice = null;
+						
+						tileBoard.selection = new Board.Selection(){
+							boolean tileSelectable(int row, int column){
+								return row == 0 && tiles[lastRow - row][column] != Tile.Empty && playerStates.get(player).numWorkers > 0;
+							}
+							
+							void selected(int row, int column){
+								choice = column;
+							}
+							
+							TileDecoration tileDecoration(int row, int column){
+								return choice != null && row == 0 && choice.equals(column) ? Highlight :
+									tileSelectable(row, column) ? Select : None;
+							}
+						};
+					}
+					
+					public void initHumanLongChoice(int player){
+						
+					}
+					
+					public Integer completeHumanChoice(int player){
+						tileBoard.selection = null;
 			
-		}
-		
-		Integer completeHumanChoice(int player){
-			tileBoard.selection = null;
-
-			return choice;
-		}
-		
-		boolean humanMadeChoice(int player){
-			return choice != null;
-		}
+						return choice;
+					}
+					
+					public boolean humanMadeChoice(int player){
+						return choice != null;
+					}
+				});
 	}
 
 	/*
