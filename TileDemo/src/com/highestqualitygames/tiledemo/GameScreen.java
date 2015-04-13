@@ -132,13 +132,13 @@ public class GameScreen implements Screen {
 
 		stage.addActor(st);
 		
-		beginRound();
+		phase = GamePhase.TileChoose;
+		tileChoicePhase().beginPhase();
 	}
 	
 	// This could be done more directly, but hoping to move some stuff out...
 	// Or to replace this with a way more explicit state based system
-	public Action nextPhase(){
-		return new Action(){
+	public Action nextPhase = new Action(){
 			public boolean act(float d){
 				switch(phase){
 				case TileChoose:
@@ -166,7 +166,7 @@ public class GameScreen implements Screen {
 				return true;
 			}
 		};
-	}
+	
 	
 	void beginRound(){
 		// TODO: Have an explicit phase ordering somewhere...
@@ -175,7 +175,7 @@ public class GameScreen implements Screen {
 
 	// Used in place of delay to speed/slow actions for smoke testing
 	Action ui_delay(float f){
-		return delay(f / 10);
+		return delay(f);
 	}
 	
 	public void dispose() {
@@ -345,7 +345,7 @@ public class GameScreen implements Screen {
 	
 	public PlayerChoicePhase<Integer> tileChoicePhase(){
 		return new PlayerChoicePhase<Integer>("Tile Choice Round", "Pick a tile. >3s for speed bonus!", "Pick a tile. 12s remaining", 
-				nextPhase(),
+				nextPhase,
 				new PlayerChoiceHandler<Integer>() {
 					int choice;
 					
@@ -413,7 +413,7 @@ public class GameScreen implements Screen {
 	
 	public PlayerChoicePhase<Integer> tilePlacePhase(){
 		return new PlayerChoicePhase<Integer>("Tile placement round", "Pick a column. <3s for speed bonus!", "Pick a column. 12s remaining.",
-				nextPhase(),
+				nextPhase,
 				new PlayerChoiceHandler<Integer>(){
 					int choice = -1;
 					
@@ -477,7 +477,7 @@ public class GameScreen implements Screen {
 	
 	PlayerChoicePhase<Pair> roleChoicePhase(){
 		return new PlayerChoicePhase<Pair>("Role choice round", "Pick a role. >3s for speed bonus!", "Pick a role. You have 12s.",
-				nextPhase(),
+				nextPhase,
 				new PlayerChoiceHandler<Pair>(){
 					Pair choice;
 					
@@ -611,7 +611,7 @@ public class GameScreen implements Screen {
 	
 	PlayerChoicePhase<Integer> placeWorkerPhase(){
 		return new PlayerChoicePhase<Integer>("Place workers round", "Short blach blach", "Long blah blah.",
-				nextPhase(),
+				nextPhase,
 				new PlayerChoiceHandler<Integer>(){
 					public void initRound(){}
 					public void roundOver(){}
@@ -725,7 +725,7 @@ public class GameScreen implements Screen {
 	}
 	
 	int defaultColumn(boolean emptyAvailable){
-		return first(this.availableIndices(Arrays.asList(tiles[lastRow]), numPlayers + 1, emptyAvailable));
+		return first(availableIndices(Arrays.asList(tiles[lastRow]), numPlayers + 1, emptyAvailable));
 	}
 	
 	Pair cpuChooseRandomRole(int player){
@@ -816,8 +816,7 @@ public class GameScreen implements Screen {
 				ArrayList<Worker> tileWorkers = new ArrayList<Worker>();
 				
 				for(int i = 0; i < numPlayers; i++){
-					if(workers[i][lastRow - row][col])
-					{
+					if(workers[i][lastRow - row][col]) {
 						tileWorkers.add(players.get(i).worker);
 					}
 				}
